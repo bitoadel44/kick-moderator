@@ -166,15 +166,26 @@ export default {
       if (!env.DB) return json({ error: "Database unavailable." }, 503);
       const rawBody = await request.text();
       if (rawBody.length > 256_000) return json({ error: "Payload too large." }, 413);
+      const eventType = request.headers.get("Kick-Event-Type") || "unknown";
+      await ensureTables(env.DB);
       let verified = false;
-      try { verified = await verifyKickWebhook(request, rawBody); }
-      catch (error) { return json({ error: error.message || "Webhook verification failed." }, 502); }
-      if (!verified) return json({ error: "Invalid Kick webhook signature." }, 401);
+      try {
+        verified = await verifyKickWebhook(request, rawBody);
+      } catch (error) {
+        const detail = String(error?.message || error || "Unknown verification error").slice(0, 500);
+        console.error("KICK_WEBHOOK_VERIFY_ERROR", JSON.stringify({ eventType, detail }));
+        return json({ error: "Webhook signature verification failed.", diagnostic: detail }, 502);
+      }
+      if (!verified) {
+        console.error("KICK_WEBHOOK_INVALID_SIGNATURE", JSON.stringify({ eventType }));
+        return json({ error: "Invalid Kick webhook signature." }, 401);
+      }
 
       let payload;
-      try { payload = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON payload." }, 400); }
-      await ensureTables(env.DB);
-      const eventType = request.headers.get("Kick-Event-Type") || "unknown";
+      try { payload = JSON.parse(rawBody); } catch (error) {
+        console.error("KICK_WEBHOOK_INVALID_JSON", JSON.stringify({ eventType, detail: String(error?.message || error) }));
+        return json({ error: "Invalid JSON payload." }, 400);
+      }
       if (eventType === "chat.message.sent") {
         const broadcaster = payload.broadcaster || {};
         const sender = payload.sender || {};
