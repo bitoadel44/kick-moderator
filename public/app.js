@@ -170,6 +170,48 @@ document.querySelector("#add-channel-form").addEventListener("submit", async (ev
   finally { button.disabled = false; }
 });
 
+document.querySelector("#check-moderation-results").addEventListener("click", async () => {
+  const button = document.querySelector("#check-moderation-results");
+  const status = document.querySelector("#moderation-results-status");
+  const list = document.querySelector("#moderation-results-list");
+  button.disabled = true;
+  status.textContent = "Checking moderation results…";
+  list.replaceChildren();
+  try {
+    const response = await fetch("/api/webhooks/diagnostics", { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json();
+    if (response.status === 401) throw new Error("Your dashboard session was not accepted. Please log out and log in again.");
+    if (!response.ok) throw new Error(data.error || "Could not load moderation results.");
+    const matches = (data.diagnostics || []).filter(item =>
+      ["dry_run_match", "dry_run_timeout"].includes(item.outcome)
+    );
+    if (!matches.length) {
+      status.textContent = "No moderation matches recorded yet. Send a fresh test message and check again.";
+      return;
+    }
+    status.textContent = "Showing " + matches.length + " recent dry-run match(es).";
+    for (const result of matches) {
+      let detail = {};
+      try { detail = JSON.parse(result.detail || "{}"); } catch {}
+      const item = document.createElement("div");
+      item.className = "channel-item";
+      const title = document.createElement("strong");
+      title.textContent = (detail.username || "Unknown user") + " · " + result.stage;
+      const summary = document.createElement("span");
+      const action = detail.action === "would_timeout" ? "Would timeout for " + (detail.duration_seconds || 0) + " seconds"
+        : detail.action === "would_permanently_ban" ? "Would permanently ban"
+        : "Dry-run match";
+      summary.textContent = "@" + (detail.channel || "unknown channel") + " — " + action + (detail.reason ? " · " + detail.reason : detail.matched_term ? " · Matched term: " + detail.matched_term : "");
+      item.append(title, summary);
+      list.append(item);
+    }
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.querySelector("#check-webhook-events").addEventListener("click", async () => {
   const button = document.querySelector("#check-webhook-events");
   const status = document.querySelector("#webhook-status");
