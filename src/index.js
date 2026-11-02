@@ -397,13 +397,23 @@ export default {
 
         // Live automatic enforcement: apply the matched rule and record Kick's response.
         if (stored.meta?.changes && broadcaster.user_id && sender.user_id) {
-          const channel = await env.DB.prepare("SELECT slug FROM managed_channels WHERE broadcaster_user_id = ?")
-            .bind(broadcaster.user_id).first();
-          if (channel) {
-            const protectedUser = await env.DB.prepare("SELECT id FROM protected_users WHERE username = ? COLLATE NOCASE")
-              .bind(String(sender.username || "").trim()).first();
-            if (!protectedUser) {
-            const terms = await env.DB.prepare("SELECT term FROM banned_words ORDER BY id").all();
+          // Run independent D1 reads together to reduce webhook-to-action latency.
+          const [channel, protectedUser, termsResult, previousMessages, emoteSettings, spamSettings] = await Promise.all([
+            env.DB.prepare("SELECT slug FROM managed_channels WHERE broadcaster_user_id = ?")
+              .bind(broadcaster.user_id).first(),
+            env.DB.prepare("SELECT id FROM protected_users WHERE username = ? COLLATE NOCASE")
+              .bind(String(sender.username || "").trim()).first(),
+            env.DB.prepare("SELECT term FROM banned_words ORDER BY id").all(),
+            env.DB.prepare(`SELECT content FROM webhook_events
+              WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
+              ORDER BY COALESCE(event_created_at, received_at) DESC, received_at DESC
+              LIMIT 9`)
+              .bind(broadcaster.user_id, sender.user_id, messageId).all(),
+            env.DB.prepare("SELECT emote_message_threshold FROM moderation_settings WHERE id = 1").first(),
+            env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first()
+          ]);
+          if (channel && !protectedUser) {
+            const terms = termsResult;
             const matchedTerm = findBannedWordMatch(payload.content || "", terms.results || []);
             let bannedForThisMessage = false;
             if (matchedTerm) {
@@ -435,12 +445,6 @@ export default {
 
             const messageEmoteCount = countKickEmotes(payload.content || "");
             const emoteOnlyMessage = isKickEmoteOnlyMessage(payload.content || "");
-            const previousMessages = await env.DB.prepare(`SELECT content FROM webhook_events
-              WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
-              ORDER BY COALESCE(event_created_at, received_at) DESC, received_at DESC
-              LIMIT 9`)
-              .bind(broadcaster.user_id, sender.user_id, messageId).all();
-            const emoteSettings = await env.DB.prepare("SELECT emote_message_threshold FROM moderation_settings WHERE id = 1").first();
             const emoteMessageThreshold = Math.min(20, Math.max(2, Number(emoteSettings?.emote_message_threshold) || 10));
             const recentPreviousEmoteMessages = (previousMessages.results || []).slice(0, emoteMessageThreshold - 1);
             const previousEmoteMessagesAreEmoteOnly = recentPreviousEmoteMessages.length === emoteMessageThreshold - 1 &&
@@ -483,7 +487,6 @@ export default {
                 .bind("emote_spam_match", result.ok ? "timeout_sent" : "enforcement_error", detail, eventType).run();
             }
 
-            const spamSettings = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first();
             // Ignore Kick emote tokens for repeated-text spam. Emote-only messages become empty and are skipped.
             const normalizeTextSpamContent = (value) => String(value || "")
               .replace(/\[emote:\d+:[^\]]+\]/g, " ")
