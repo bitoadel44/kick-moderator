@@ -355,6 +355,38 @@ export default {
               await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
                 .bind("emote_spam_match", "dry_run_timeout", detail, eventType).run();
             }
+
+            const spamSettings = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first();
+            const normalizedContent = String(payload.content || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase();
+            if (spamSettings?.spam_enabled && normalizedContent) {
+              const recentSameMessages = await env.DB.prepare(`SELECT content FROM webhook_events
+                WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
+                  AND received_at >= datetime('now', ?)
+                ORDER BY received_at DESC
+                LIMIT 100`)
+                .bind(broadcaster.user_id, sender.user_id, messageId, `-${spamSettings.window_seconds} seconds`).all();
+              const identicalPreviousCount = (recentSameMessages.results || []).filter((row) =>
+                String(row.content || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase() === normalizedContent
+              ).length;
+              const totalRepeatedCount = identicalPreviousCount + 1;
+              if (totalRepeatedCount >= spamSettings.repeat_count) {
+                const detail = JSON.stringify({
+                  mode: "dry_run",
+                  action: "would_timeout",
+                  duration_seconds: spamSettings.timeout_seconds,
+                  reason: "Repeated identical message within configured time window",
+                  identical_messages: totalRepeatedCount,
+                  repeat_threshold: spamSettings.repeat_count,
+                  window_seconds: spamSettings.window_seconds,
+                  channel: channel.slug,
+                  username: String(sender.username || "").slice(0, 80),
+                  sender_user_id: sender.user_id,
+                  message_id: messageId
+                });
+                await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+                  .bind("repeated_message_spam", "dry_run_timeout", detail, eventType).run();
+              }
+            }
           }
         }
       }
