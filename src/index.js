@@ -63,7 +63,7 @@ async function verifyKickWebhook(request, rawBody) {
   }
   pem = pem.replace(/\\n/g, "\n").trim();
   if (!pem) throw new Error("Kick public-key response was empty.");
-  const match = pem.match(/-----BEGIN PUBLIC KEY-----([\\s\\S]+?)-----END PUBLIC KEY-----/);
+  const match = pem.match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
   if (!match) {
     let shape = "plain text";
     try {
