@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101014">
+  <title>K_Botros Kick Moderator</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="mark">KB</div>
+      <div><p class="eyebrow">KICK CHANNEL TOOLS</p><h1>K_Botros <span>Moderator</span></h1></div>
+      <span class="status"><i></i> Dashboard</span>
+    </header>
+    <section class="welcome">
+      <p class="eyebrow">CONTROL CENTER</p>
+      <h2>Your chat.<br><span>Your rules.</span></h2>
+      <p class="muted">A simple home for your Kick moderation tools. Connect your Kick account after deployment.</p>
+      <button id="connect" disabled>Kick connection — coming next</button>
+    </section>
+    <section class="grid">
+      <article class="panel"><p class="eyebrow">LIVE CHAT</p><h3>Not connected</h3><p class="muted">Messages will appear here after Kick OAuth and event setup.</p></article>
+      <article class="panel"><p class="eyebrow">AUTO MODERATION</p><h3>Safe mode</h3><p class="muted">Automatic actions stay off until you configure and test your rules.</p></article>
+      <article class="panel"><p class="eyebrow">DATABASE</p><h3 id="db-status">Checking…</h3><p class="muted" id="health-detail">Checking the server connection.</p></article>
+    </section>
+    <footer>Built for K_Botros · Keep your account credentials private.</footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
