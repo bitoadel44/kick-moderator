@@ -43,9 +43,11 @@ async function verifyKickWebhook(request, rawBody) {
   if (!messageId || !timestamp || !signature) return false;
 
   const keyResponse = await fetch("https://api.kick.com/public/v1/public-key");
-  if (!keyResponse.ok) throw new Error("Could not retrieve Kick's current webhook public key.");
-  const pem = (await keyResponse.text()).trim();
-  const match = pem.match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
+  if (!keyResponse.ok) throw new Error("Could not retrieve Kick's current webhook public key (HTTP " + keyResponse.status + ").");
+  const keyData = await keyResponse.json().catch(() => null);
+  const pem = typeof keyData === "string" ? keyData : keyData?.public_key;
+  if (typeof pem !== "string") throw new Error("Kick public-key response did not contain a public_key field.");
+  const match = pem.trim().match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
   if (!match) throw new Error("Kick returned an unsupported public-key format.");
   const der = Uint8Array.from(atob(match[1].replace(/\s/g, "")), c => c.charCodeAt(0));
   const key = await crypto.subtle.importKey("spki", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
