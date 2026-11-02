@@ -158,7 +158,11 @@ document.querySelector("#add-channel-form").addEventListener("submit", async (ev
     const data = await response.json();
     if (response.status === 401) { showLogin(); throw new Error(data.error || "Reconnect Kick."); }
     if (!response.ok) throw new Error(data.error || "Could not add channel.");
-    input.value = ""; status.textContent = "@" + data.channel.slug + " added. Moderator permissions are NOT verified yet; protection remains off.";
+    input.value = "";
+    const subscriptionText = data.webhookSubscription === "subscribed"
+      ? "Kick accepted the chat-event subscription."
+      : "Kick subscription failed: " + (data.warning || "No reason returned.");
+    status.textContent = "@" + data.channel.slug + " added. " + subscriptionText + " Moderator permissions are NOT verified yet; protection remains off.";
     await loadChannels();
   } catch (error) { status.textContent = error.message; }
   finally { button.disabled = false; }
