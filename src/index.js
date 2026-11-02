@@ -68,7 +68,15 @@ async function verifyKickWebhook(request, rawBody) {
     let shape = "plain text";
     try {
       const parsed = JSON.parse(keyText);
-      shape = parsed && typeof parsed === "object" ? "JSON object with keys: " + Object.keys(parsed).join(", ") : typeof parsed;
+      if (parsed && typeof parsed === "object") {
+        const data = parsed.data;
+        const dataShape = Array.isArray(data)
+          ? "array length " + data.length + (data[0] && typeof data[0] === "object" ? ", first item keys: " + Object.keys(data[0]).join(", ") : "")
+          : data && typeof data === "object"
+            ? "object keys: " + Object.keys(data).join(", ")
+            : typeof data;
+        shape = "JSON keys: " + Object.keys(parsed).join(", ") + "; data is " + dataShape;
+      } else shape = typeof parsed;
     } catch {}
     throw new Error("Kick public-key response did not contain a PEM public key (" + shape + "; HTTP 200).");
   }
