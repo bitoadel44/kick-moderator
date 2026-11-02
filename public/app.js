@@ -241,6 +241,41 @@ document.querySelector("#check-webhook-events").addEventListener("click", async 
           }
         });
         item.append(timeout);
+        const ban = document.createElement("button");
+        ban.type = "button";
+        ban.textContent = "Permanent ban";
+        ban.addEventListener("click", async () => {
+          const targetName = event.sender_username || ("user ID " + event.sender_user_id);
+          const channelName = event.broadcaster_slug || "this channel";
+          const confirmationText = "PERMANENTLY BAN " + targetName;
+          if (!confirm("WARNING: This sends a REAL PERMANENT Kick ban to " + targetName + " in " + channelName + ". This is not a timeout and may require a separate unban action. Continue?")) return;
+          const typed = prompt('Type exactly "' + confirmationText + '" to confirm the permanent ban:');
+          if (typed === null) return;
+          ban.disabled = true;
+          status.textContent = "Sending permanent-ban request to Kick…";
+          try {
+            const result = await fetch("/api/moderation/ban", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                broadcasterUserId: event.broadcaster_user_id,
+                targetUserId: event.sender_user_id,
+                username: event.sender_username || "",
+                confirmation: typed,
+                reason: "Manual dashboard permanent ban"
+              })
+            });
+            const body = await result.json();
+            if (result.status === 401) { showLogin(); throw new Error(body.error || "Please reconnect Kick."); }
+            if (!result.ok) throw new Error(body.error || "Kick rejected the permanent ban.");
+            status.textContent = "Kick accepted the permanent ban for " + body.target + " in @" + body.channel + ".";
+            ban.textContent = "Ban sent";
+          } catch (error) {
+            status.textContent = error.message;
+            ban.disabled = false;
+          }
+        });
+        item.append(ban);
       }
       list.append(item);
     }
