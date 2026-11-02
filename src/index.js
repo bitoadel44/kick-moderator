@@ -45,6 +45,15 @@ async function ensureTables(db) {
     scope TEXT,
     connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS moderation_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    spam_enabled INTEGER NOT NULL DEFAULT 0,
+    repeat_count INTEGER NOT NULL DEFAULT 4,
+    window_seconds INTEGER NOT NULL DEFAULT 30,
+    timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+  await db.prepare(`INSERT OR IGNORE INTO moderation_settings (id) VALUES (1)`).run();
 }
 export default {
   async fetch(request, env) {
@@ -133,6 +142,38 @@ export default {
       await ensureTables(env.DB);
       const row = await env.DB.prepare("SELECT scope, expires_at, connected_at FROM kick_connection WHERE id = 1").first();
       return json({ connected: Boolean(row), ...(row || {}) });
+    }
+
+    if (url.pathname === "/api/settings" && (request.method === "GET" || request.method === "PUT")) {
+      if (!env.DB) return json({ error: "Database unavailable" }, 503);
+      await ensureTables(env.DB);
+      if (request.method === "GET") {
+        const row = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds, updated_at FROM moderation_settings WHERE id = 1").first();
+        return json({
+          spamEnabled: Boolean(row?.spam_enabled),
+          repeatCount: row?.repeat_count ?? 4,
+          windowSeconds: row?.window_seconds ?? 30,
+          timeoutSeconds: row?.timeout_seconds ?? 300,
+          updatedAt: row?.updated_at ?? null
+        });
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid settings payload." }, 400); }
+      const repeatCount = Number(body.repeatCount);
+      const windowSeconds = Number(body.windowSeconds);
+      const timeoutSeconds = Number(body.timeoutSeconds);
+      if (typeof body.spamEnabled !== "boolean" ||
+          !Number.isInteger(repeatCount) || repeatCount < 2 || repeatCount > 20 ||
+          !Number.isInteger(windowSeconds) || windowSeconds < 5 || windowSeconds > 300 ||
+          !Number.isInteger(timeoutSeconds) || timeoutSeconds < 10 || timeoutSeconds > 86400) {
+        return json({ error: "Choose 2–20 repeats, a 5–300 second window, and a 10–86400 second timeout." }, 400);
+      }
+      await env.DB.prepare(`INSERT INTO moderation_settings (id, spam_enabled, repeat_count, window_seconds, timeout_seconds, updated_at)
+        VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET spam_enabled=excluded.spam_enabled, repeat_count=excluded.repeat_count,
+        window_seconds=excluded.window_seconds, timeout_seconds=excluded.timeout_seconds, updated_at=CURRENT_TIMESTAMP`)
+        .bind(body.spamEnabled ? 1 : 0, repeatCount, windowSeconds, timeoutSeconds).run();
+      return json({ ok: true, spamEnabled: body.spamEnabled, repeatCount, windowSeconds, timeoutSeconds });
     }
 
     if (url.pathname.startsWith("/api/")) return json({ error: "Not implemented yet" }, 501);
