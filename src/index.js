@@ -25,8 +25,8 @@ function safeEqual(a, b) {
 
 function bannedWordTokens(value) {
   return String(value || "").normalize("NFKD").toLocaleLowerCase()
-    .replace(/[\\u0300-\\u036f]/g, "")
-    .match(/[\\p{L}\\p{N}]+/gu) || [];
+    .replace(/[\u0300-\u036f]/g, "")
+    .match(/[\p{L}\p{N}]+/gu) || [];
 }
 function bannedWordKey(token) {
   return token.replace(/[aeiou]/g, "");
@@ -48,7 +48,8 @@ function findBannedWordMatch(message, terms) {
   }
   return null;
 }
-\nasync function hasDashboardSession(request, secret) {
+
+async function hasDashboardSession(request, secret) {
   if (!secret) return false;
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/(?:^|; )kb_session=([^;]+)/);
