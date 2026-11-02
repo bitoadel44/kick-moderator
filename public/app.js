@@ -210,6 +210,72 @@ document.querySelector("#check-webhook-events").addEventListener("click", async 
   }
 });
 
+async function loadBannedWords() {
+  const status = document.querySelector("#banned-words-status");
+  const list = document.querySelector("#banned-words-list");
+  try {
+    const response = await fetch("/api/banned-words", { cache: "no-store" });
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); return; }
+    if (!response.ok) throw new Error(data.error || "Could not load banned words.");
+    list.replaceChildren();
+    const words = data.words || [];
+    status.textContent = words.length ? words.length + " banned term(s) saved. Enforcement is still OFF." : "No banned words or phrases added yet.";
+    for (const word of words) {
+      const item = document.createElement("div");
+      item.className = "channel-item";
+      const term = document.createElement("strong");
+      term.textContent = word.term;
+      const note = document.createElement("span");
+      note.textContent = "Saved · permanent-ban rule not active";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", async () => {
+        if (!confirm('Remove "' + word.term + '" from the banned list?')) return;
+        remove.disabled = true;
+        try {
+          const result = await fetch("/api/banned-words/" + word.id, { method: "DELETE" });
+          const body = await result.json();
+          if (!result.ok) throw new Error(body.error || "Could not remove term.");
+          await loadBannedWords();
+        } catch (error) {
+          status.textContent = error.message;
+          remove.disabled = false;
+        }
+      });
+      item.append(term, note, remove);
+      list.append(item);
+    }
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+document.querySelector("#add-banned-word-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.querySelector("#banned-word-input");
+  const button = document.querySelector("#add-banned-word-button");
+  const status = document.querySelector("#banned-words-status");
+  button.disabled = true;
+  status.textContent = "Saving term…";
+  try {
+    const response = await fetch("/api/banned-words", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ term: input.value })
+    });
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); throw new Error("Please log in again."); }
+    if (!response.ok) throw new Error(data.error || "Could not save term.");
+    input.value = "";
+    await loadBannedWords();
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 const originalLoadSettingsForChannels = loadSpamSettings;
 loadSpamSettings = async function() { await originalLoadSettingsForChannels(); await loadChannels(); };
 const originalCheckHealth = checkHealth;
