@@ -605,8 +605,21 @@ export default {
           client_secret: env.KICK_CLIENT_SECRET, redirect_uri: REDIRECT_URI, code_verifier: session.verifier,
         }),
       });
-      if (!tokenResponse.ok) return new Response("Kick token exchange failed. Return to the dashboard and retry; if it continues, verify the app redirect URL and credentials.", { status: 502 });
+      if (!tokenResponse.ok) {
+        const errorText = await tokenResponse.text();
+        let errorDetail = errorText.slice(0, 500);
+        try {
+          const parsed = JSON.parse(errorText);
+          errorDetail = String(parsed.error_description || parsed.error || parsed.message || errorDetail).slice(0, 500);
+        } catch {}
+        console.error("KICK_TOKEN_EXCHANGE_FAILED", JSON.stringify({ status: tokenResponse.status, detail: errorDetail }));
+        return new Response("Kick token exchange failed (HTTP " + tokenResponse.status + "): " + errorDetail + ". Check the Kick app redirect URL and Cloudflare credentials, then retry Connect Kick.", { status: 502 });
+      }
       const tokens = await tokenResponse.json();
+      if (!tokens.access_token || !tokens.refresh_token) {
+        console.error("KICK_TOKEN_EXCHANGE_INVALID_RESPONSE", JSON.stringify({ hasAccessToken: Boolean(tokens.access_token), hasRefreshToken: Boolean(tokens.refresh_token), keys: Object.keys(tokens) }));
+        return new Response("Kick returned an incomplete token response. No saved connection was changed. Check Worker logs and retry.", { status: 502 });
+      }
       await ensureTables(env.DB);
       await env.DB.prepare(`INSERT INTO kick_connection (id, access_token, refresh_token, expires_at, scope, connected_at)
         VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
