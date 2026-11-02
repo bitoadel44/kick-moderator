@@ -164,6 +164,41 @@ document.querySelector("#add-channel-form").addEventListener("submit", async (ev
   finally { button.disabled = false; }
 });
 
+document.querySelector("#check-webhook-events").addEventListener("click", async () => {
+  const button = document.querySelector("#check-webhook-events");
+  const status = document.querySelector("#webhook-status");
+  const list = document.querySelector("#webhook-event-list");
+  button.disabled = true;
+  status.textContent = "Checking recent events…";
+  list.replaceChildren();
+  try {
+    const response = await fetch("/api/webhooks/recent", { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json();
+    if (response.status === 401) throw new Error("Your dashboard session was not accepted. Please log out and log in again.");
+    if (!response.ok) throw new Error(data.error || "Could not load webhook events.");
+    const events = data.events || [];
+    if (!events.length) {
+      status.textContent = "No chat events received yet. Send a new message in your Kick channel and check again.";
+      return;
+    }
+    status.textContent = "Received " + events.length + " recent event(s).";
+    for (const event of events) {
+      const item = document.createElement("div");
+      item.className = "channel-item";
+      const title = document.createElement("strong");
+      title.textContent = (event.sender_username || "Unknown sender") + " · " + event.event_type;
+      const detail = document.createElement("span");
+      detail.textContent = "@" + (event.broadcaster_slug || "unknown channel") + " — " + (event.content || "(no message content)");
+      item.append(title, detail);
+      list.append(item);
+    }
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 const originalLoadSettingsForChannels = loadSpamSettings;
 loadSpamSettings = async function() { await originalLoadSettingsForChannels(); await loadChannels(); };
 const originalCheckHealth = checkHealth;
