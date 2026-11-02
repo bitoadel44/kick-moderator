@@ -616,12 +616,17 @@ export default {
     }
 
     if (url.pathname === "/api/connection") {
-      if (!env.DB) return json({ connected: false, error: "Database unavailable" }, 503);
-      await ensureTables(env.DB);
-      const result = await getValidKickUserConnection(env);
-      if (!result.connection) return json({ connected: false, error: result.error, reconnect: Boolean(result.reconnect) }, result.reconnect ? 401 : 502);
-      const row = result.connection;
-      return json({ connected: true, scope: row.scope, expires_at: row.expires_at, connected_at: row.connected_at, refreshed: Boolean(result.refreshed) });
+      try {
+        if (!env.DB) return json({ connected: false, error: "Database unavailable" }, 503);
+        await ensureTables(env.DB);
+        const result = await getValidKickUserConnection(env);
+        if (!result.connection) return json({ connected: false, error: result.error, reconnect: Boolean(result.reconnect) }, result.reconnect ? 401 : 502);
+        const row = result.connection;
+        return json({ connected: true, scope: row.scope, expires_at: row.expires_at, connected_at: row.connected_at, refreshed: Boolean(result.refreshed) });
+      } catch (error) {
+        console.error("DASHBOARD_CONNECTION_ERROR", error?.stack || error?.message || String(error));
+        return json({ connected: false, error: "Connection check failed: " + String(error?.message || error || "Unknown error").slice(0, 300) }, 500);
+      }
     }
 
     if (url.pathname === "/api/webhooks/recent" && request.method === "GET") {
