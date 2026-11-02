@@ -226,6 +226,31 @@ async function getValidKickUserConnection(env) {
   return { connection: latest, refreshed: true };
 }
 
+async function sendAutomaticModeration(env, { broadcasterUserId, targetUserId, durationMinutes = null, reason }) {
+  const connectionResult = await getValidKickUserConnection(env);
+  if (!connectionResult.connection) {
+    return { ok: false, status: 0, error: connectionResult.error || "Kick connection unavailable." };
+  }
+  const connection = connectionResult.connection;
+  const scopes = String(connection.scope || "").split(/[ ,]+/);
+  if (!scopes.includes("moderation:ban")) {
+    return { ok: false, status: 0, error: "The saved Kick connection does not include moderation:ban." };
+  }
+  const body = {
+    broadcaster_user_id: Number(broadcasterUserId),
+    user_id: Number(targetUserId),
+    reason: String(reason || "Automatic moderation").slice(0, 100)
+  };
+  if (durationMinutes !== null) body.duration = durationMinutes;
+  const response = await fetch("https://api.kick.com/public/v1/moderation/bans", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + connection.access_token, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data };
+}
+
 async function subscribeChannelToChat(env, broadcasterUserId) {
   const appToken = await createKickAppToken(env);
   const response = await fetch("https://api.kick.com/public/v1/events/subscriptions", {
@@ -376,18 +401,32 @@ export default {
             if (!protectedUser) {
             const terms = await env.DB.prepare("SELECT term FROM banned_words ORDER BY id").all();
             const matchedTerm = findBannedWordMatch(payload.content || "", terms.results || []);
+            let bannedForThisMessage = false;
             if (matchedTerm) {
+              let result;
+              try {
+                result = await sendAutomaticModeration(env, {
+                  broadcasterUserId: broadcaster.user_id,
+                  targetUserId: sender.user_id,
+                  reason: "Banned word: " + matchedTerm
+                });
+              } catch (error) {
+                result = { ok: false, status: 0, error: String(error?.message || error) };
+              }
+              bannedForThisMessage = result.ok;
               const detail = JSON.stringify({
-                mode: "dry_run",
-                action: "would_permanently_ban",
+                mode: "live",
+                action: "permanent_ban",
                 channel: channel.slug,
                 username: String(sender.username || "").slice(0, 80),
                 sender_user_id: sender.user_id,
                 matched_term: matchedTerm,
-                message_id: messageId
+                message_id: messageId,
+                http_status: result.status,
+                response: result.data || result.error
               });
               await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
-                .bind("banned_word_match", "dry_run_match", detail, eventType).run();
+                .bind("banned_word_match", result.ok ? "permanent_ban_sent" : "enforcement_error", detail, eventType).run();
             }
 
             const messageEmoteCount = countKickEmotes(payload.content || "");
@@ -407,10 +446,23 @@ export default {
               : (emoteOnlyMessage && previousEmoteMessagesAreEmoteOnly
                 ? `More than ${emoteMessageThreshold - 1} consecutive emote-only messages`
                 : null);
-            if (emoteSpamReason) {
+            let emoteSpamMatched = false;
+            if (emoteSpamReason && !bannedForThisMessage) {
+              let result;
+              try {
+                result = await sendAutomaticModeration(env, {
+                  broadcasterUserId: broadcaster.user_id,
+                  targetUserId: sender.user_id,
+                  durationMinutes: 1440,
+                  reason: emoteSpamReason
+                });
+              } catch (error) {
+                result = { ok: false, status: 0, error: String(error?.message || error) };
+              }
+              emoteSpamMatched = true;
               const detail = JSON.stringify({
-                mode: "dry_run",
-                action: "would_timeout",
+                mode: "live",
+                action: "timeout",
                 duration_seconds: 86400,
                 reason: emoteSpamReason,
                 emotes_in_message: messageEmoteCount,
@@ -419,10 +471,12 @@ export default {
                 channel: channel.slug,
                 username: String(sender.username || "").slice(0, 80),
                 sender_user_id: sender.user_id,
-                message_id: messageId
+                message_id: messageId,
+                http_status: result.status,
+                response: result.data || result.error
               });
               await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
-                .bind("emote_spam_match", "dry_run_timeout", detail, eventType).run();
+                .bind("emote_spam_match", result.ok ? "timeout_sent" : "enforcement_error", detail, eventType).run();
             }
 
             const spamSettings = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first();
@@ -444,22 +498,35 @@ export default {
                 normalizeTextSpamContent(row.content) === normalizedContent
               ).length;
               const totalRepeatedCount = identicalPreviousCount + 1;
-              if (totalRepeatedCount >= spamSettings.repeat_count) {
+              if (totalRepeatedCount >= spamSettings.repeat_count && !bannedForThisMessage && !emoteSpamMatched) {
+                let result;
+                try {
+                  result = await sendAutomaticModeration(env, {
+                    broadcasterUserId: broadcaster.user_id,
+                    targetUserId: sender.user_id,
+                    durationMinutes: Math.max(1, Math.ceil(Number(spamSettings.timeout_seconds) / 60)),
+                    reason: "Repeated identical text within configured time window"
+                  });
+                } catch (error) {
+                  result = { ok: false, status: 0, error: String(error?.message || error) };
+                }
                 const detail = JSON.stringify({
-                  mode: "dry_run",
-                  action: "would_timeout",
+                  mode: "live",
+                  action: "timeout",
                   duration_seconds: spamSettings.timeout_seconds,
-                  reason: "Repeated identical message within configured time window",
+                  reason: "Repeated identical text within configured time window",
                   identical_messages: totalRepeatedCount,
                   repeat_threshold: spamSettings.repeat_count,
                   window_seconds: spamSettings.window_seconds,
                   channel: channel.slug,
                   username: String(sender.username || "").slice(0, 80),
                   sender_user_id: sender.user_id,
-                  message_id: messageId
+                  message_id: messageId,
+                  http_status: result.status,
+                  response: result.data || result.error
                 });
                 await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
-                  .bind("repeated_message_spam", "dry_run_timeout", detail, eventType).run();
+                  .bind("repeated_message_spam", result.ok ? "timeout_sent" : "enforcement_error", detail, eventType).run();
               }
             }
             }
