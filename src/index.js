@@ -391,7 +391,7 @@ export default {
             payload.created_at || null
           ).run();
 
-        // Safe preview only: detect matches and record them; never issue moderation actions here.
+        // Live automatic enforcement: apply the matched rule and record Kick's response.
         if (stored.meta?.changes && broadcaster.user_id && sender.user_id) {
           const channel = await env.DB.prepare("SELECT slug FROM managed_channels WHERE broadcaster_user_id = ?")
             .bind(broadcaster.user_id).first();
