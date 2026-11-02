@@ -234,6 +234,11 @@ async function ensureTables(db) {
     term TEXT NOT NULL COLLATE NOCASE UNIQUE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS protected_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
 }
 export default {
   async fetch(request, env) {
@@ -309,6 +314,9 @@ export default {
           const channel = await env.DB.prepare("SELECT slug FROM managed_channels WHERE broadcaster_user_id = ?")
             .bind(broadcaster.user_id).first();
           if (channel) {
+            const protectedUser = await env.DB.prepare("SELECT id FROM protected_users WHERE username = ? COLLATE NOCASE")
+              .bind(String(sender.username || "").trim()).first();
+            if (!protectedUser) {
             const terms = await env.DB.prepare("SELECT term FROM banned_words ORDER BY id").all();
             const matchedTerm = findBannedWordMatch(payload.content || "", terms.results || []);
             if (matchedTerm) {
@@ -386,6 +394,7 @@ export default {
                 await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
                   .bind("repeated_message_spam", "dry_run_timeout", detail, eventType).run();
               }
+            }
             }
           }
         }
@@ -508,6 +517,36 @@ export default {
       await env.DB.prepare("DELETE FROM managed_channels WHERE broadcaster_user_id = ?").bind(id).run();
       return json({ ok: true });
     }
+    if (url.pathname === "/api/protected-users" && request.method === "GET") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const result = await env.DB.prepare("SELECT id, username, created_at FROM protected_users ORDER BY username COLLATE NOCASE").all();
+      return json({ users: result.results || [] });
+    }
+    if (url.pathname === "/api/protected-users" && request.method === "POST") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
+      const username = String(body.username || "").trim().replace(/^@/, "");
+      if (!/^[a-zA-Z0-9_]{1,25}$/.test(username)) return json({ error: "Enter a valid Kick username (1–25 letters, numbers, or underscores)." }, 400);
+      try {
+        const user = await env.DB.prepare("INSERT INTO protected_users (username) VALUES (?) RETURNING id, username, created_at").bind(username).first();
+        return json({ ok: true, user }, 201);
+      } catch (error) {
+        if (/unique/i.test(String(error?.message || error))) return json({ error: "That username is already protected." }, 409);
+        throw error;
+      }
+    }
+    if (url.pathname.startsWith("/api/protected-users/") && request.method === "DELETE") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const id = Number(url.pathname.split("/").pop());
+      if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Invalid protected-user ID." }, 400);
+      await env.DB.prepare("DELETE FROM protected_users WHERE id = ?").bind(id).run();
+      return json({ ok: true });
+    }
+
     if (url.pathname === "/api/banned-words" && request.method === "GET") {
       if (!env.DB) return json({ error: "Database unavailable." }, 503);
       await ensureTables(env.DB);
@@ -585,6 +624,8 @@ export default {
         return json({ error: "Choose a valid channel and user." }, 400);
       }
       if (broadcasterUserId === targetUserId) return json({ error: "Safety check blocked: you cannot ban the broadcaster." }, 400);
+      const protectedUser = await env.DB.prepare("SELECT id FROM protected_users WHERE username = ? COLLATE NOCASE").bind(username).first();
+      if (protectedUser) return json({ error: "Safety check blocked: this user is on your protected list. No ban was sent." }, 403);
       const expectedConfirmation = "PERMANENTLY BAN " + (username || String(targetUserId));
       if (confirmation !== expectedConfirmation) return json({ error: "Confirmation did not match. No ban was sent." }, 400);
       const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE broadcaster_user_id = ?")
@@ -627,6 +668,8 @@ export default {
         return json({ error: "Choose a valid channel, user, and timeout duration (1–10080 minutes)." }, 400);
       }
       if (broadcasterUserId === targetUserId) return json({ error: "Safety check blocked: you cannot timeout the broadcaster." }, 400);
+      const protectedUser = await env.DB.prepare("SELECT id FROM protected_users WHERE username = ? COLLATE NOCASE").bind(username).first();
+      if (protectedUser) return json({ error: "Safety check blocked: this user is on your protected list. No timeout was sent." }, 403);
       const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE broadcaster_user_id = ?")
         .bind(broadcasterUserId).first();
       if (!channel) return json({ error: "This channel is not in your managed channels." }, 403);
