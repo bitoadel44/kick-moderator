@@ -48,14 +48,30 @@ async function verifyKickWebhook(request, rawBody) {
   let pem = keyText.trim();
   try {
     const keyData = JSON.parse(keyText);
-    if (typeof keyData === "string") pem = keyData;
-    else if (typeof keyData?.public_key === "string") pem = keyData.public_key;
+    const candidates = [
+      keyData,
+      keyData?.public_key,
+      keyData?.publicKey,
+      keyData?.data?.public_key,
+      keyData?.data?.publicKey,
+      keyData?.data
+    ];
+    const found = candidates.find(value => typeof value === "string" && value.includes("-----BEGIN PUBLIC KEY-----"));
+    if (found) pem = found;
   } catch {
-    // Kick's documented endpoint may return the PEM directly as plain text.
+    // Kick may return the PEM directly as plain text.
   }
-  if (typeof pem !== "string" || !pem.trim()) throw new Error("Kick public-key response was empty.");
-  const match = pem.trim().match(/-----BEGIN PUBLIC KEY-----([\\s\\S]+?)-----END PUBLIC KEY-----/);
-  if (!match) throw new Error("Kick returned an unsupported public-key format.");
+  pem = pem.replace(/\\\\n/g, "\\n").trim();
+  if (!pem) throw new Error("Kick public-key response was empty.");
+  const match = pem.match(/-----BEGIN PUBLIC KEY-----([\\s\\S]+?)-----END PUBLIC KEY-----/);
+  if (!match) {
+    let shape = "plain text";
+    try {
+      const parsed = JSON.parse(keyText);
+      shape = parsed && typeof parsed === "object" ? "JSON object with keys: " + Object.keys(parsed).join(", ") : typeof parsed;
+    } catch {}
+    throw new Error("Kick public-key response did not contain a PEM public key (" + shape + "; HTTP 200).");
+  }
   const decodeBase64 = (value, label) => {
     let normalized = String(value || "").trim();
     normalized = normalized.replace(/^(?:sha256|base64)\\s*=\\s*/i, "");
