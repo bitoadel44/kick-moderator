@@ -217,7 +217,7 @@ async function getValidKickUserConnection(env) {
     connected_at: connection.connected_at
   };
   await env.DB.prepare(`UPDATE kick_connection
-    SET access_token = ?, refresh_token = ?, expires_at = ?, scope = ?, connected_at = CURRENT_TIMESTAMP
+    SET access_token = ?, refresh_token = ?, expires_at = ?, scope = ?
     WHERE id = 1 AND refresh_token = ?`)
     .bind(updated.access_token, updated.refresh_token, updated.expires_at, updated.scope, connection.refresh_token).run();
 
