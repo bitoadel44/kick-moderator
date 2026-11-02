@@ -23,6 +23,26 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+function countMaxConsecutiveKickEmotes(content) {
+  const text = String(content || "");
+  const matches = [...text.matchAll(/\\[emote:\\d+:[^\\]]+\\]/g)];
+  let current = 0;
+  let maximum = 0;
+  let previousEnd = -1;
+  for (const match of matches) {
+    const start = match.index ?? 0;
+    const gap = previousEnd < 0 ? "" : text.slice(previousEnd, start);
+    if (previousEnd < 0 || /^\\s*$/.test(gap)) {
+      current += 1;
+    } else {
+      current = 1;
+    }
+    maximum = Math.max(maximum, current);
+    previousEnd = start + match[0].length;
+  }
+  return maximum;
+}
+
 function bannedWordTokens(value) {
   return String(value || "").normalize("NFKD").toLocaleLowerCase()
     .replace(/[\u0300-\u036f]/g, "")
@@ -303,6 +323,23 @@ export default {
               });
               await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
                 .bind("banned_word_match", "dry_run_match", detail, eventType).run();
+            }
+
+            const consecutiveEmotes = countMaxConsecutiveKickEmotes(payload.content || "");
+            if (consecutiveEmotes > 8) {
+              const detail = JSON.stringify({
+                mode: "dry_run",
+                action: "would_timeout",
+                duration_seconds: 86400,
+                reason: "More than 8 consecutive Kick emotes",
+                consecutive_emotes: consecutiveEmotes,
+                channel: channel.slug,
+                username: String(sender.username || "").slice(0, 80),
+                sender_user_id: sender.user_id,
+                message_id: messageId
+              });
+              await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+                .bind("emote_spam_match", "dry_run_timeout", detail, eventType).run();
             }
           }
         }
