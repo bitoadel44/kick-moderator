@@ -426,7 +426,13 @@ export default {
             }
 
             const spamSettings = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first();
-            const normalizedContent = String(payload.content || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase();
+            // Ignore Kick emote tokens for repeated-text spam. Emote-only messages become empty and are skipped.
+            const normalizeTextSpamContent = (value) => String(value || "")
+              .replace(/\\[emote:\\d+:[^\\]]+\\]/g, " ")
+              .trim()
+              .replace(/\\s+/g, " ")
+              .toLocaleLowerCase();
+            const normalizedContent = normalizeTextSpamContent(payload.content || "");
             if (spamSettings?.spam_enabled && normalizedContent) {
               const recentSameMessages = await env.DB.prepare(`SELECT content FROM webhook_events
                 WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
@@ -435,7 +441,7 @@ export default {
                 LIMIT 100`)
                 .bind(broadcaster.user_id, sender.user_id, messageId, `-${spamSettings.window_seconds} seconds`).all();
               const identicalPreviousCount = (recentSameMessages.results || []).filter((row) =>
-                String(row.content || "").trim().replace(/\\s+/g, " ").toLocaleLowerCase() === normalizedContent
+                normalizeTextSpamContent(row.content) === normalizedContent
               ).length;
               const totalRepeatedCount = identicalPreviousCount + 1;
               if (totalRepeatedCount >= spamSettings.repeat_count) {
