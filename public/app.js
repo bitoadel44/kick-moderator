@@ -88,6 +88,7 @@ async function loadSpamSettings() {
     document.querySelector("#spam-repeat-count").value = settings.repeatCount;
     document.querySelector("#spam-window").value = settings.windowSeconds;
     document.querySelector("#spam-timeout").value = settings.timeoutSeconds;
+    document.querySelector("#emote-message-threshold").value = settings.emoteMessageThreshold ?? 10;
     status.textContent = settings.spamEnabled ? "Settings loaded. Spam protection is enabled." : "Settings loaded. Rule is currently off.";
   } catch (error) {
     status.textContent = error.message;
@@ -100,7 +101,8 @@ document.querySelector("#save-spam-settings").addEventListener("click", async ()
     spamEnabled: document.querySelector("#spam-enabled").checked,
     repeatCount: Number(document.querySelector("#spam-repeat-count").value),
     windowSeconds: Number(document.querySelector("#spam-window").value),
-    timeoutSeconds: Number(document.querySelector("#spam-timeout").value)
+    timeoutSeconds: Number(document.querySelector("#spam-timeout").value),
+    emoteMessageThreshold: Number(document.querySelector("#emote-message-threshold").value)
   };
   button.disabled = true;
   status.textContent = "Saving settings…";
@@ -114,8 +116,8 @@ document.querySelector("#save-spam-settings").addEventListener("click", async ()
     if (response.status === 401) { showLogin(); throw new Error("Please log in again."); }
     if (!response.ok) throw new Error(result.error || "Could not save settings.");
     status.textContent = result.spamEnabled
-      ? `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Rule enabled.`
-      : `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Rule off.`;
+      ? `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Emote threshold: ${result.emoteMessageThreshold} consecutive messages. Rule enabled.`
+      : `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Emote threshold: ${result.emoteMessageThreshold} consecutive messages. Rule off.`;
   } catch (error) {
     status.textContent = error.message;
   } finally {
