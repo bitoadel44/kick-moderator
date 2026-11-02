@@ -15,3 +15,11 @@ database_id = "00dfba05-bdf6-42ec-813d-85c61c2ca7a2"
 [vars]
 APP_NAME = "K_Botros Kick Moderator"
 KICK_CLIENT_ID = "01M6D7CZV1NNM796Q8A24C44PD"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+persist = true
