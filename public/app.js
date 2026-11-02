@@ -201,6 +201,47 @@ document.querySelector("#check-webhook-events").addEventListener("click", async 
       const detail = document.createElement("span");
       detail.textContent = "@" + (event.broadcaster_slug || "unknown channel") + " — " + (event.content || "(no message content)");
       item.append(title, detail);
+      if (event.sender_user_id && event.broadcaster_user_id) {
+        const timeout = document.createElement("button");
+        timeout.type = "button";
+        timeout.textContent = "Timeout";
+        timeout.addEventListener("click", async () => {
+          const minutesText = prompt("Timeout " + (event.sender_username || "user") + " for how many minutes? (1–10080)", "1");
+          if (minutesText === null) return;
+          const minutes = Number(minutesText);
+          if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
+            status.textContent = "Enter a whole number from 1 to 10080 minutes.";
+            return;
+          }
+          const targetName = event.sender_username || ("user ID " + event.sender_user_id);
+          const channelName = event.broadcaster_slug || "this channel";
+          if (!confirm("Send a " + minutes + "-minute timeout to " + targetName + " in " + channelName + "? This is a REAL Kick moderation action.")) return;
+          timeout.disabled = true;
+          status.textContent = "Sending timeout request to Kick…";
+          try {
+            const result = await fetch("/api/moderation/timeout", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                broadcasterUserId: event.broadcaster_user_id,
+                targetUserId: event.sender_user_id,
+                username: event.sender_username || "",
+                durationMinutes: minutes,
+                reason: "Manual dashboard timeout"
+              })
+            });
+            const body = await result.json();
+            if (result.status === 401) { showLogin(); throw new Error(body.error || "Please reconnect Kick."); }
+            if (!result.ok) throw new Error(body.error || "Kick rejected the timeout.");
+            status.textContent = "Kick accepted: " + body.target + " timed out in @" + body.channel + " for " + body.durationMinutes + " minute(s).";
+            timeout.textContent = "Timeout sent";
+          } catch (error) {
+            status.textContent = error.message;
+            timeout.disabled = false;
+          }
+        });
+        item.append(timeout);
+      }
       list.append(item);
     }
   } catch (error) {
