@@ -122,6 +122,50 @@ document.querySelector("#save-spam-settings").addEventListener("click", async ()
     button.disabled = false;
   }
 });
+async function loadChannels() {
+  const status = document.querySelector("#channels-status");
+  const list = document.querySelector("#channel-list");
+  try {
+    const response = await fetch("/api/channels");
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); return; }
+    if (!response.ok) throw new Error(data.error || "Could not load channels.");
+    list.replaceChildren();
+    if (!data.channels.length) { status.textContent = "No channels added yet."; return; }
+    status.textContent = "Channels added: " + data.channels.length + ". Moderator permissions have not yet been verified."; 
+    for (const channel of data.channels) {
+      const item = document.createElement("div"); item.className = "channel-item";
+      const name = document.createElement("strong"); name.textContent = "@" + channel.slug;
+      const note = document.createElement("span"); note.textContent = "Added · protection OFF · permissions not checked";
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Remove"; remove.addEventListener("click", async () => {
+        if (!confirm("Remove @" + channel.slug + " from managed channels?")) return;
+        remove.disabled = true;
+        const result = await fetch("/api/channels/" + channel.broadcasterUserId, { method: "DELETE" });
+        if (result.ok) loadChannels(); else { remove.disabled = false; status.textContent = "Could not remove channel."; }
+      });
+      item.append(name, note, remove); list.append(item);
+    }
+  } catch (error) { status.textContent = error.message; }
+}
+document.querySelector("#add-channel-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.querySelector("#channel-slug");
+  const button = document.querySelector("#add-channel-button");
+  const status = document.querySelector("#channels-status");
+  button.disabled = true; status.textContent = "Checking channel with Kick…";
+  try {
+    const response = await fetch("/api/channels", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: input.value }) });
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); throw new Error(data.error || "Reconnect Kick."); }
+    if (!response.ok) throw new Error(data.error || "Could not add channel.");
+    input.value = ""; status.textContent = "@" + data.channel.slug + " added. Moderator permissions are NOT verified yet; protection remains off.";
+    await loadChannels();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
+const originalLoadSettingsForChannels = loadSpamSettings;
+loadSpamSettings = async function() { await originalLoadSettingsForChannels(); await loadChannels(); };
 const originalCheckHealth = checkHealth;
 checkHealth = async function() {
   await originalCheckHealth();
