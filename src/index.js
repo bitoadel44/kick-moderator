@@ -305,6 +305,10 @@ async function ensureTables(db) {
     id INTEGER PRIMARY KEY AUTOINCREMENT, stage TEXT NOT NULL, outcome TEXT NOT NULL,
     detail TEXT, event_type TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS moderation_cooldowns (
+    cooldown_key TEXT PRIMARY KEY,
+    cooldown_until TEXT NOT NULL
+  )`).run();
   await db.prepare(`CREATE TABLE IF NOT EXISTS managed_channels (
     broadcaster_user_id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
     spam_enabled INTEGER NOT NULL DEFAULT 0, repeat_count INTEGER NOT NULL DEFAULT 4,
@@ -498,14 +502,17 @@ export default {
                 normalizeTextSpamContent(row.content) === normalizedContent
               ).length;
               const totalRepeatedCount = identicalPreviousCount + 1;
-              const recentRepeatTimeout = await env.DB.prepare(`SELECT id FROM webhook_diagnostics
-                WHERE stage = 'repeated_message_spam' AND outcome = 'timeout_sent'
-                  AND json_extract(detail, '$.sender_user_id') = ?
-                  AND json_extract(detail, '$.channel') = ?
-                  AND received_at >= datetime('now', ?)
-                ORDER BY received_at DESC LIMIT 1`)
-                .bind(sender.user_id, channel.slug, `-${spamSettings.window_seconds} seconds`).first();
-              if (totalRepeatedCount >= spamSettings.repeat_count && !recentRepeatTimeout && !bannedForThisMessage && !emoteSpamMatched) {
+              const repeatCooldownKey = `repeat:${broadcaster.user_id}:${sender.user_id}`;
+              const cooldownUntil = new Date(Date.now() + Number(spamSettings.window_seconds) * 1000).toISOString();
+              const cooldownReservation = totalRepeatedCount >= spamSettings.repeat_count && !bannedForThisMessage && !emoteSpamMatched
+                ? await env.DB.prepare(`INSERT INTO moderation_cooldowns (cooldown_key, cooldown_until)
+                    VALUES (?, ?)
+                    ON CONFLICT(cooldown_key) DO UPDATE SET cooldown_until = excluded.cooldown_until
+                    WHERE moderation_cooldowns.cooldown_until <= CURRENT_TIMESTAMP
+                    RETURNING cooldown_key`)
+                    .bind(repeatCooldownKey, cooldownUntil).first()
+                : null;
+              if (cooldownReservation) {
                 let result;
                 try {
                   result = await sendAutomaticModeration(env, {
@@ -534,6 +541,10 @@ export default {
                 });
                 await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
                   .bind("repeated_message_spam", result.ok ? "timeout_sent" : "enforcement_error", detail, eventType).run();
+                if (!result.ok) {
+                  await env.DB.prepare("DELETE FROM moderation_cooldowns WHERE cooldown_key = ? AND cooldown_until = ?")
+                    .bind(repeatCooldownKey, cooldownUntil).run();
+                }
               }
             }
             }
