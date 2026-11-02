@@ -17,11 +17,12 @@
     <section class="welcome">
       <p class="eyebrow">CONTROL CENTER</p>
       <h2>Your chat.<br><span>Your rules.</span></h2>
-      <p class="muted">A simple home for your Kick moderation tools. Connect your Kick account after deployment.</p>
-      <button id="connect" disabled>Kick connection — coming next</button>
+      <p class="muted">Connect your Kick broadcaster account to begin setting up moderation tools.</p>
+      <button id="connect">Connect Kick</button>
+      <p class="muted" id="connection-status" role="status">Checking connection…</p>
     </section>
     <section class="grid">
-      <article class="panel"><p class="eyebrow">LIVE CHAT</p><h3>Not connected</h3><p class="muted">Messages will appear here after Kick OAuth and event setup.</p></article>
+      <article class="panel"><p class="eyebrow">LIVE CHAT</p><h3>Not connected</h3><p class="muted">Chat events will be added after account authorization.</p></article>
       <article class="panel"><p class="eyebrow">AUTO MODERATION</p><h3>Safe mode</h3><p class="muted">Automatic actions stay off until you configure and test your rules.</p></article>
       <article class="panel"><p class="eyebrow">DATABASE</p><h3 id="db-status">Checking…</h3><p class="muted" id="health-detail">Checking the server connection.</p></article>
     </section>
