@@ -399,8 +399,9 @@ export default {
               .bind(broadcaster.user_id, sender.user_id, messageId).all();
             const emoteSettings = await env.DB.prepare("SELECT emote_message_threshold FROM moderation_settings WHERE id = 1").first();
             const emoteMessageThreshold = Math.min(20, Math.max(2, Number(emoteSettings?.emote_message_threshold) || 10));
-            const previousEmoteMessagesAreEmoteOnly = (previousMessages.results || []).length === emoteMessageThreshold - 1 &&
-              previousMessages.results.every((row) => isKickEmoteOnlyMessage(row.content));
+            const recentPreviousEmoteMessages = (previousMessages.results || []).slice(0, emoteMessageThreshold - 1);
+            const previousEmoteMessagesAreEmoteOnly = recentPreviousEmoteMessages.length === emoteMessageThreshold - 1 &&
+              recentPreviousEmoteMessages.every((row) => isKickEmoteOnlyMessage(row.content));
             const emoteSpamReason = messageEmoteCount > 9
               ? "More than 9 emotes in one message"
               : (emoteOnlyMessage && previousEmoteMessagesAreEmoteOnly
