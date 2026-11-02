@@ -498,7 +498,14 @@ export default {
                 normalizeTextSpamContent(row.content) === normalizedContent
               ).length;
               const totalRepeatedCount = identicalPreviousCount + 1;
-              if (totalRepeatedCount >= spamSettings.repeat_count && !bannedForThisMessage && !emoteSpamMatched) {
+              const recentRepeatTimeout = await env.DB.prepare(`SELECT id FROM webhook_diagnostics
+                WHERE stage = 'repeated_message_spam' AND outcome = 'timeout_sent'
+                  AND json_extract(detail, '$.sender_user_id') = ?
+                  AND json_extract(detail, '$.channel') = ?
+                  AND received_at >= datetime('now', ?)
+                ORDER BY received_at DESC LIMIT 1`)
+                .bind(sender.user_id, channel.slug, `-${spamSettings.window_seconds} seconds`).first();
+              if (totalRepeatedCount >= spamSettings.repeat_count && !recentRepeatTimeout && !bannedForThisMessage && !emoteSpamMatched) {
                 let result;
                 try {
                   result = await sendAutomaticModeration(env, {
