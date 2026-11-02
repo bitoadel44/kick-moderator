@@ -36,6 +36,24 @@ async function hasDashboardSession(request, secret) {
   } catch { return false; }
 }
 
+async function verifyKickWebhook(request, rawBody) {
+  const messageId = request.headers.get("Kick-Event-Message-Id");
+  const timestamp = request.headers.get("Kick-Event-Message-Timestamp");
+  const signature = request.headers.get("Kick-Event-Signature");
+  if (!messageId || !timestamp || !signature) return false;
+
+  const keyResponse = await fetch("https://api.kick.com/public/v1/public-key");
+  if (!keyResponse.ok) throw new Error("Could not retrieve Kick's current webhook public key.");
+  const pem = (await keyResponse.text()).trim();
+  const match = pem.match(/-----BEGIN PUBLIC KEY-----([\\s\\S]+?)-----END PUBLIC KEY-----/);
+  if (!match) throw new Error("Kick returned an unsupported public-key format.");
+  const der = Uint8Array.from(atob(match[1].replace(/\\s/g, "")), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("spki", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const signedMessage = new TextEncoder().encode(messageId + "." + timestamp + "." + rawBody);
+  const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+  return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, signedMessage);
+}
+
 async function ensureTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS kick_connection (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -54,6 +72,11 @@ async function ensureTables(db) {
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
   await db.prepare(`INSERT OR IGNORE INTO moderation_settings (id) VALUES (1)`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS webhook_events (
+    message_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, broadcaster_user_id INTEGER,
+    broadcaster_slug TEXT, sender_user_id INTEGER, sender_username TEXT,
+    content TEXT, event_created_at TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
   await db.prepare(`CREATE TABLE IF NOT EXISTS managed_channels (
     broadcaster_user_id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
     spam_enabled INTEGER NOT NULL DEFAULT 0, repeat_count INTEGER NOT NULL DEFAULT 4,
@@ -83,6 +106,39 @@ export default {
       return json({ ok: true }, 200, {
         "set-cookie": "kb_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
       });
+    }
+
+    if (url.pathname === "/webhooks/kick" && request.method === "POST") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      const rawBody = await request.text();
+      if (rawBody.length > 256_000) return json({ error: "Payload too large." }, 413);
+      let verified = false;
+      try { verified = await verifyKickWebhook(request, rawBody); }
+      catch (error) { return json({ error: error.message || "Webhook verification failed." }, 502); }
+      if (!verified) return json({ error: "Invalid Kick webhook signature." }, 401);
+
+      let payload;
+      try { payload = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON payload." }, 400); }
+      await ensureTables(env.DB);
+      const eventType = request.headers.get("Kick-Event-Type") || "unknown";
+      if (eventType === "chat.message.sent") {
+        const broadcaster = payload.broadcaster || {};
+        const sender = payload.sender || {};
+        await env.DB.prepare(`INSERT OR IGNORE INTO webhook_events
+          (message_id, event_type, broadcaster_user_id, broadcaster_slug, sender_user_id, sender_username, content, event_created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(
+            String(payload.message_id || request.headers.get("Kick-Event-Message-Id")),
+            eventType,
+            broadcaster.user_id || null,
+            broadcaster.channel_slug || null,
+            sender.user_id || null,
+            sender.username || null,
+            String(payload.content || "").slice(0, 2000),
+            payload.created_at || null
+          ).run();
+      }
+      return json({ ok: true });
     }
 
     if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" &&
