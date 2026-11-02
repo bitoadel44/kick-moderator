@@ -33,6 +33,15 @@
       <button id="connect">Connect Kick</button>
       <p class="muted" id="connection-status" role="status">Checking connection…</p>
     </section>
+    <section class="panel settings-panel">
+      <div class="settings-heading"><div><p class="eyebrow">AUTO MODERATION</p><h3>Spam protection</h3><p class="muted">Choose the repeat-message threshold, detection window, and timeout.</p></div><label class="switch-label"><input id="spam-enabled" type="checkbox"><span>Enable rule</span></label></div>
+      <div class="settings-grid">
+        <label>Repeated messages<input id="spam-repeat-count" type="number" min="2" max="20" step="1" value="4"></label>
+        <label>Within (seconds)<input id="spam-window" type="number" min="5" max="300" step="1" value="30"></label>
+        <label>Timeout (seconds)<input id="spam-timeout" type="number" min="10" max="86400" step="1" value="300"></label>
+      </div>
+      <div class="settings-actions"><button id="save-spam-settings" type="button">Save settings</button><span id="settings-status" class="muted" role="status">Default: 4 repeats in 30 seconds → 5-minute timeout. Rule is off until enabled.</span></div>
+    </section>
     <section class="grid">
       <article class="panel"><p class="eyebrow">LIVE CHAT</p><h3>Not connected</h3><p class="muted">Chat events will be added after account authorization.</p></article>
       <article class="panel"><p class="eyebrow">AUTO MODERATION</p><h3>Safe mode</h3><p class="muted">Automatic actions stay off until you configure and test your rules.</p></article>
