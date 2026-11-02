@@ -550,7 +550,6 @@ export default {
                 }
               }
             }
-            }
           }
         }
       }
