@@ -25,14 +25,14 @@ function safeEqual(a, b) {
 
 function countMaxConsecutiveKickEmotes(content) {
   const text = String(content || "");
-  const matches = [...text.matchAll(/\\[emote:\\d+:[^\\]]+\\]/g)];
+  const matches = [...text.matchAll(/\[emote:\d+:[^\]]+\]/g)];
   let current = 0;
   let maximum = 0;
   let previousEnd = -1;
   for (const match of matches) {
     const start = match.index ?? 0;
     const gap = previousEnd < 0 ? "" : text.slice(previousEnd, start);
-    if (previousEnd < 0 || /^\\s*$/.test(gap)) {
+    if (previousEnd < 0 || /^\s*$/.test(gap)) {
       current += 1;
     } else {
       current = 1;
