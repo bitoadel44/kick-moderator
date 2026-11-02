@@ -508,7 +508,7 @@ export default {
                 ? await env.DB.prepare(`INSERT INTO moderation_cooldowns (cooldown_key, cooldown_until)
                     VALUES (?, ?)
                     ON CONFLICT(cooldown_key) DO UPDATE SET cooldown_until = excluded.cooldown_until
-                    WHERE moderation_cooldowns.cooldown_until <= CURRENT_TIMESTAMP
+                    WHERE datetime(moderation_cooldowns.cooldown_until) <= CURRENT_TIMESTAMP
                     RETURNING cooldown_key`)
                     .bind(repeatCooldownKey, cooldownUntil).first()
                 : null;
