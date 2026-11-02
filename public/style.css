@@ -1,1 +1,15 @@
 :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:#101014;color:#f6f4fa}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#34204a 0,transparent 42%),#101014;min-height:100vh}.shell{max-width:1050px;margin:auto;padding:34px 24px}.top{display:flex;align-items:center;gap:14px}.mark{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:#a855f7;color:white;font-weight:900}.eyebrow{font-size:11px;letter-spacing:2px;color:#b68be8;font-weight:800;margin:0 0 8px}.top h1{font-size:20px;margin:0}.top h1 span,.welcome h2 span{color:#c084fc}.status{margin-left:auto;border:1px solid #393341;padding:8px 12px;border-radius:99px;color:#c9c2d2;font-size:12px}.status i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#a78bfa;margin-right:7px}.welcome{padding:76px 0 54px;max-width:650px}.welcome h2{font-size:clamp(42px,8vw,76px);line-height:.98;letter-spacing:-3px;margin:12px 0 18px}.muted{color:#aaa3b4;line-height:1.65}.welcome button{margin-top:18px;border:0;border-radius:10px;padding:13px 18px;background:#63339a;color:#e9d5ff;font-weight:700}.welcome button:disabled{opacity:.8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.panel{background:#19171f;border:1px solid #302a38;border-radius:16px;padding:22px;min-height:155px}.panel h3{margin:10px 0;font-size:19px}footer{margin-top:54px;color:#77717f;font-size:12px}@media(max-width:600px){.shell{padding:24px 18px}.welcome{padding:60px 0 40px}.status{font-size:0}.status i{margin:0}}
+[hidden]{display:none!important}
+.login-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 0%,#34204a 0,transparent 55%),#101014}
+.login-card{width:min(100%,420px);padding:34px;background:#19171f;border:1px solid #393044;border-radius:20px;box-shadow:0 24px 80px #0008}
+.login-card .mark{margin-bottom:28px}
+.login-card h1{font-size:25px;margin:0 0 12px}
+.login-card h1 span{color:#c084fc}
+.login-card label{display:block;margin:24px 0 8px;color:#d8d1df;font-size:13px}
+.login-card input{width:100%;padding:13px 14px;border:1px solid #494052;border-radius:10px;background:#100e14;color:#fff;font:inherit;outline:none}
+.login-card input:focus{border-color:#c084fc}
+.login-card button,.logout{border:0;border-radius:10px;padding:13px 18px;background:#63339a;color:#fff;font-weight:700;cursor:pointer}
+.login-card button{width:100%;margin-top:16px}
+.login-card button:disabled{opacity:.6}
+.login-error{min-height:20px;color:#fca5a5;font-size:13px}
+.logout{margin-left:10px;padding:8px 12px;background:#302638;font-size:12px}
