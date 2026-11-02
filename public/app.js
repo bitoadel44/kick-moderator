@@ -78,3 +78,4 @@ connectButton.addEventListener("click", () => {
   window.location.assign("/api/auth/start");
 });
 checkHealth();
+// Cloudflare deployment test
