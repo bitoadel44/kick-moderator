@@ -54,6 +54,51 @@ async function verifyKickWebhook(request, rawBody) {
   return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, signedMessage);
 }
 
+
+async function createKickAppToken(env) {
+  if (!env.KICK_CLIENT_ID || !env.KICK_CLIENT_SECRET) {
+    throw new Error("Kick app credentials are missing. Add KICK_CLIENT_ID and KICK_CLIENT_SECRET in Cloudflare.");
+  }
+  const form = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: env.KICK_CLIENT_ID,
+    client_secret: env.KICK_CLIENT_SECRET
+  });
+  const response = await fetch("https://id.kick.com/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: form
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    throw new Error("Kick app-token request failed: " + (data.error_description || data.error || data.message || response.status));
+  }
+  return data.access_token;
+}
+
+async function subscribeChannelToChat(env, broadcasterUserId) {
+  const appToken = await createKickAppToken(env);
+  const response = await fetch("https://api.kick.com/public/v1/events/subscriptions", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + appToken,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      broadcaster_user_id: Number(broadcasterUserId),
+      method: "webhook",
+      events: [{ name: "chat.message.sent", version: 1 }]
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error("Kick chat subscription failed: " + (data.message || data.error || response.status));
+  }
+  const errors = data?.data?.[0]?.error || data?.data?.error;
+  if (errors) throw new Error("Kick rejected the chat subscription: " + errors);
+  return data;
+}
+
 async function ensureTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS kick_connection (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -234,7 +279,12 @@ export default {
       const channel = data.data && data.data[0];
       if (!channel) return json({ error: "No Kick channel found with that username." }, 404);
       await env.DB.prepare("INSERT INTO managed_channels (broadcaster_user_id, slug) VALUES (?, ?) ON CONFLICT(broadcaster_user_id) DO UPDATE SET slug=excluded.slug").bind(channel.broadcaster_user_id, channel.slug).run();
-      return json({ ok: true, channel: { broadcasterUserId: channel.broadcaster_user_id, slug: channel.slug }, permissionStatus: "not_checked" });
+      try {
+        const subscription = await subscribeChannelToChat(env, channel.broadcaster_user_id);
+        return json({ ok: true, channel: { broadcasterUserId: channel.broadcaster_user_id, slug: channel.slug }, permissionStatus: "not_checked", webhookSubscription: "subscribed", subscription });
+      } catch (error) {
+        return json({ ok: true, channel: { broadcasterUserId: channel.broadcaster_user_id, slug: channel.slug }, permissionStatus: "not_checked", webhookSubscription: "failed", warning: error.message });
+      }
     }
     if (url.pathname.startsWith("/api/channels/") && request.method === "DELETE") {
       await ensureTables(env.DB); const id = Number(url.pathname.split("/").pop());
