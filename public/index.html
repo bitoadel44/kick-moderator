@@ -42,6 +42,12 @@
       </div>
       <div class="settings-actions"><button id="save-spam-settings" type="button">Save settings</button><span id="settings-status" class="muted" role="status">Default: 4 repeats in 30 seconds → 5-minute timeout. Rule is off until enabled.</span></div>
     </section>
+    <section class="panel protected-users-panel">
+      <div class="settings-heading"><div><p class="eyebrow">SAFETY</p><h3>Protected users</h3><p class="muted">Add usernames that must never receive a manual timeout, permanent ban, or automatic moderation action from this dashboard.</p></div></div>
+      <form id="add-protected-user-form" class="add-channel-form"><input id="protected-user-input" type="text" maxlength="25" placeholder="Kick username (without @)" autocomplete="off" required><button id="add-protected-user-button" type="submit">Protect user</button></form>
+      <p id="protected-users-status" class="muted" role="status">Loading protected users…</p>
+      <div id="protected-users-list" class="channel-list"></div>
+    </section>
     <section class="panel banned-words-panel">
       <div class="settings-heading"><div><p class="eyebrow">AUTO MODERATION</p><h3>Banned words & phrases</h3><p class="muted">Add terms that should trigger a permanent ban when enforcement is enabled. The list is saved, but automatic bans are NOT active yet.</p></div><span class="safe-mode-label">Enforcement OFF</span></div>
       <form id="add-banned-word-form" class="add-channel-form"><input id="banned-word-input" type="text" maxlength="80" placeholder="Add a word or phrase" autocomplete="off" required><button id="add-banned-word-button" type="submit">Add term</button></form>
