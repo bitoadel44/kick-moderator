@@ -173,6 +173,59 @@ async function createKickAppToken(env) {
   return data.access_token;
 }
 
+async function getValidKickUserConnection(env) {
+  const now = Math.floor(Date.now() / 1000);
+  let connection = await env.DB.prepare("SELECT access_token, refresh_token, expires_at, scope, connected_at FROM kick_connection WHERE id = 1").first();
+  if (!connection) return { connection: null, error: "Kick is not connected." };
+  if (connection.expires_at > now + 600) return { connection, refreshed: false };
+  if (!connection.refresh_token || !env.KICK_CLIENT_ID || !env.KICK_CLIENT_SECRET) {
+    return { connection: null, error: "Automatic refresh is not configured. Reconnect Kick.", reconnect: true };
+  }
+
+  const response = await fetch("https://id.kick.com/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: connection.refresh_token,
+      client_id: env.KICK_CLIENT_ID,
+      client_secret: env.KICK_CLIENT_SECRET
+    })
+  });
+  const tokens = await response.json().catch(() => ({}));
+  if (!response.ok || !tokens.access_token) {
+    // Another request may have refreshed and rotated the token while this request was in flight.
+    const latest = await env.DB.prepare("SELECT access_token, refresh_token, expires_at, scope, connected_at FROM kick_connection WHERE id = 1").first();
+    if (latest && latest.refresh_token !== connection.refresh_token && latest.expires_at > now + 60) {
+      return { connection: latest, refreshed: true };
+    }
+    const invalidGrant = String(tokens.error || "").toLowerCase() === "invalid_grant";
+    return {
+      connection: null,
+      error: invalidGrant
+        ? "Kick's refresh token is no longer valid. Reconnect Kick."
+        : "Kick token refresh failed. Please try again; reconnect Kick if the problem continues.",
+      reconnect: invalidGrant
+    };
+  }
+
+  const updated = {
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token || connection.refresh_token,
+    expires_at: now + Number(tokens.expires_in || 3600),
+    scope: tokens.scope || connection.scope || "",
+    connected_at: connection.connected_at
+  };
+  await env.DB.prepare(`UPDATE kick_connection
+    SET access_token = ?, refresh_token = ?, expires_at = ?, scope = ?, connected_at = CURRENT_TIMESTAMP
+    WHERE id = 1 AND refresh_token = ?`)
+    .bind(updated.access_token, updated.refresh_token, updated.expires_at, updated.scope, connection.refresh_token).run();
+
+  const latest = await env.DB.prepare("SELECT access_token, refresh_token, expires_at, scope, connected_at FROM kick_connection WHERE id = 1").first();
+  if (!latest) return { connection: null, error: "Kick connection could not be saved. Reconnect Kick." };
+  return { connection: latest, refreshed: true };
+}
+
 async function subscribeChannelToChat(env, broadcasterUserId) {
   const appToken = await createKickAppToken(env);
   const response = await fetch("https://api.kick.com/public/v1/events/subscriptions", {
@@ -464,8 +517,10 @@ export default {
     if (url.pathname === "/api/connection") {
       if (!env.DB) return json({ connected: false, error: "Database unavailable" }, 503);
       await ensureTables(env.DB);
-      const row = await env.DB.prepare("SELECT scope, expires_at, connected_at FROM kick_connection WHERE id = 1").first();
-      return json({ connected: Boolean(row), ...(row || {}) });
+      const result = await getValidKickUserConnection(env);
+      if (!result.connection) return json({ connected: false, error: result.error, reconnect: Boolean(result.reconnect) }, result.reconnect ? 401 : 502);
+      const row = result.connection;
+      return json({ connected: true, scope: row.scope, expires_at: row.expires_at, connected_at: row.connected_at, refreshed: Boolean(result.refreshed) });
     }
 
     if (url.pathname === "/api/webhooks/recent" && request.method === "GET") {
@@ -492,9 +547,9 @@ export default {
     }
     if (url.pathname === "/api/channels" && request.method === "POST") {
       await ensureTables(env.DB);
-      const connection = await env.DB.prepare("SELECT access_token, expires_at FROM kick_connection WHERE id = 1").first();
-      if (!connection) return json({ error: "Connect your Kick account first." }, 409);
-      if (connection.expires_at <= Math.floor(Date.now()/1000) + 60) return json({ error: "Reconnect Kick; the saved connection may have expired." }, 401);
+      const connectionResult = await getValidKickUserConnection(env);
+      if (!connectionResult.connection) return json({ error: connectionResult.error }, connectionResult.reconnect ? 401 : 502);
+      const connection = connectionResult.connection;
       let body; try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
       const slug = String(body.slug || "").trim().replace(/^@/, "").toLowerCase();
       if (!/^[a-z0-9_-]{1,25}$/.test(slug)) return json({ error: "Enter a valid Kick username (up to 25 characters)." }, 400);
@@ -631,9 +686,9 @@ export default {
       const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE broadcaster_user_id = ?")
         .bind(broadcasterUserId).first();
       if (!channel) return json({ error: "This channel is not in your managed channels." }, 403);
-      const connection = await env.DB.prepare("SELECT access_token, expires_at, scope FROM kick_connection WHERE id = 1").first();
-      if (!connection) return json({ error: "Connect Kick first." }, 409);
-      if (connection.expires_at <= Math.floor(Date.now() / 1000) + 60) return json({ error: "Kick connection is expired or nearly expired. Reconnect Kick before trying again." }, 401);
+      const connectionResult = await getValidKickUserConnection(env);
+      if (!connectionResult.connection) return json({ error: connectionResult.error }, connectionResult.reconnect ? 401 : 502);
+      const connection = connectionResult.connection;
       const scopes = String(connection.scope || "").split(/[ ,]+/);
       if (!scopes.includes("moderation:ban")) return json({ error: "The saved Kick connection does not include moderation:ban. Reconnect and grant that scope." }, 403);
       const kickResponse = await fetch("https://api.kick.com/public/v1/moderation/bans", {
@@ -673,9 +728,9 @@ export default {
       const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE broadcaster_user_id = ?")
         .bind(broadcasterUserId).first();
       if (!channel) return json({ error: "This channel is not in your managed channels." }, 403);
-      const connection = await env.DB.prepare("SELECT access_token, expires_at, scope FROM kick_connection WHERE id = 1").first();
-      if (!connection) return json({ error: "Connect Kick first." }, 409);
-      if (connection.expires_at <= Math.floor(Date.now() / 1000) + 60) return json({ error: "Kick connection is expired or nearly expired. Reconnect Kick before trying again." }, 401);
+      const connectionResult = await getValidKickUserConnection(env);
+      if (!connectionResult.connection) return json({ error: connectionResult.error }, connectionResult.reconnect ? 401 : 502);
+      const connection = connectionResult.connection;
       const scopes = String(connection.scope || "").split(/[ ,]+/);
       if (!scopes.includes("moderation:ban")) return json({ error: "The saved Kick connection does not include moderation:ban. Reconnect and grant that scope." }, 403);
       const kickResponse = await fetch("https://api.kick.com/public/v1/moderation/bans", {
