@@ -13,3 +13,18 @@
 .login-card button:disabled{opacity:.6}
 .login-error{min-height:20px;color:#fca5a5;font-size:13px}
 .logout{margin-left:10px;padding:8px 12px;background:#302638;font-size:12px}
+
+.settings-panel{margin:0 0 16px}
+.settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.settings-heading h3{font-size:22px;margin:0 0 8px}
+.switch-label{display:flex;align-items:center;gap:9px;color:#e8dff0;font-size:13px;white-space:nowrap}
+.switch-label input{accent-color:#a855f7;width:17px;height:17px}
+.settings-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:22px}
+.settings-grid label{display:grid;gap:8px;color:#d8d1df;font-size:13px}
+.settings-grid input{width:100%;padding:12px;border:1px solid #494052;border-radius:9px;background:#100e14;color:#fff;font:inherit}
+.settings-grid input:focus{outline:1px solid #c084fc;border-color:#c084fc}
+.settings-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px}
+.settings-actions button{border:0;border-radius:9px;padding:12px 16px;background:#63339a;color:#fff;font-weight:700;cursor:pointer}
+.settings-actions button:disabled{opacity:.6;cursor:wait}
+.settings-actions .muted{font-size:12px}
+@media(max-width:650px){.settings-heading{display:block}.switch-label{margin-top:18px}.settings-grid{grid-template-columns:1fr}}
