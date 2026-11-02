@@ -23,24 +23,24 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
-function countMaxConsecutiveKickEmotes(content) {
+function getKickEmoteMatches(content) {
+  return [...String(content || "").matchAll(/\[emote:\d+:[^\]]+\]/g)];
+}
+function countKickEmotes(content) {
+  return getKickEmoteMatches(content).length;
+}
+function isKickEmoteOnlyMessage(content) {
   const text = String(content || "");
-  const matches = [...text.matchAll(/\[emote:\d+:[^\]]+\]/g)];
-  let current = 0;
-  let maximum = 0;
-  let previousEnd = -1;
+  const matches = getKickEmoteMatches(text);
+  if (!matches.length) return false;
+  let remainder = "";
+  let previousEnd = 0;
   for (const match of matches) {
-    const start = match.index ?? 0;
-    const gap = previousEnd < 0 ? "" : text.slice(previousEnd, start);
-    if (previousEnd < 0 || /^\s*$/.test(gap)) {
-      current += 1;
-    } else {
-      current = 1;
-    }
-    maximum = Math.max(maximum, current);
-    previousEnd = start + match[0].length;
+    remainder += text.slice(previousEnd, match.index ?? 0);
+    previousEnd = (match.index ?? 0) + match[0].length;
   }
-  return maximum;
+  remainder += text.slice(previousEnd);
+  return remainder.trim().length === 0;
 }
 
 function bannedWordTokens(value) {
@@ -325,14 +325,28 @@ export default {
                 .bind("banned_word_match", "dry_run_match", detail, eventType).run();
             }
 
-            const consecutiveEmotes = countMaxConsecutiveKickEmotes(payload.content || "");
-            if (consecutiveEmotes > 8) {
+            const messageEmoteCount = countKickEmotes(payload.content || "");
+            const emoteOnlyMessage = isKickEmoteOnlyMessage(payload.content || "");
+            const previousMessages = await env.DB.prepare(`SELECT content FROM webhook_events
+              WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
+              ORDER BY COALESCE(event_created_at, received_at) DESC, received_at DESC
+              LIMIT 5`)
+              .bind(broadcaster.user_id, sender.user_id, messageId).all();
+            const previousFiveAreEmoteOnly = (previousMessages.results || []).length === 5 &&
+              previousMessages.results.every((row) => isKickEmoteOnlyMessage(row.content));
+            const emoteSpamReason = messageEmoteCount > 9
+              ? "More than 9 emotes in one message"
+              : (emoteOnlyMessage && previousFiveAreEmoteOnly
+                ? "More than 5 consecutive emote-only messages"
+                : null);
+            if (emoteSpamReason) {
               const detail = JSON.stringify({
                 mode: "dry_run",
                 action: "would_timeout",
                 duration_seconds: 86400,
-                reason: "More than 8 consecutive Kick emotes",
-                consecutive_emotes: consecutiveEmotes,
+                reason: emoteSpamReason,
+                emotes_in_message: messageEmoteCount,
+                consecutive_emote_only_messages: emoteOnlyMessage && previousFiveAreEmoteOnly ? 6 : 0,
                 channel: channel.slug,
                 username: String(sender.username || "").slice(0, 80),
                 sender_user_id: sender.user_id,
