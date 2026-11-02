@@ -44,9 +44,16 @@ async function verifyKickWebhook(request, rawBody) {
 
   const keyResponse = await fetch("https://api.kick.com/public/v1/public-key");
   if (!keyResponse.ok) throw new Error("Could not retrieve Kick's current webhook public key (HTTP " + keyResponse.status + ").");
-  const keyData = await keyResponse.json().catch(() => null);
-  const pem = typeof keyData === "string" ? keyData : keyData?.public_key;
-  if (typeof pem !== "string") throw new Error("Kick public-key response did not contain a public_key field.");
+  const keyText = await keyResponse.text();
+  let pem = keyText.trim();
+  try {
+    const keyData = JSON.parse(keyText);
+    if (typeof keyData === "string") pem = keyData;
+    else if (typeof keyData?.public_key === "string") pem = keyData.public_key;
+  } catch {
+    // Kick's documented endpoint may return the PEM directly as plain text.
+  }
+  if (typeof pem !== "string" || !pem.trim()) throw new Error("Kick public-key response was empty.");
   const match = pem.trim().match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
   if (!match) throw new Error("Kick returned an unsupported public-key format.");
   const der = Uint8Array.from(atob(match[1].replace(/\s/g, "")), c => c.charCodeAt(0));
