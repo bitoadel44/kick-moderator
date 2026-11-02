@@ -264,9 +264,13 @@ async function ensureTables(db) {
     repeat_count INTEGER NOT NULL DEFAULT 4,
     window_seconds INTEGER NOT NULL DEFAULT 30,
     timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    emote_message_threshold INTEGER NOT NULL DEFAULT 10,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
   await db.prepare(`INSERT OR IGNORE INTO moderation_settings (id) VALUES (1)`).run();
+  try { await db.prepare("ALTER TABLE moderation_settings ADD COLUMN emote_message_threshold INTEGER NOT NULL DEFAULT 10").run(); } catch (error) {
+    if (!String(error?.message || error).toLowerCase().includes("duplicate column")) throw error;
+  }
   await db.prepare(`CREATE TABLE IF NOT EXISTS webhook_events (
     message_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, broadcaster_user_id INTEGER,
     broadcaster_slug TEXT, sender_user_id INTEGER, sender_username TEXT,
@@ -391,14 +395,16 @@ export default {
             const previousMessages = await env.DB.prepare(`SELECT content FROM webhook_events
               WHERE broadcaster_user_id = ? AND sender_user_id = ? AND message_id != ?
               ORDER BY COALESCE(event_created_at, received_at) DESC, received_at DESC
-              LIMIT 5`)
+              LIMIT 9`)
               .bind(broadcaster.user_id, sender.user_id, messageId).all();
-            const previousFiveAreEmoteOnly = (previousMessages.results || []).length === 5 &&
+            const emoteSettings = await env.DB.prepare("SELECT emote_message_threshold FROM moderation_settings WHERE id = 1").first();
+            const emoteMessageThreshold = Math.min(20, Math.max(2, Number(emoteSettings?.emote_message_threshold) || 10));
+            const previousEmoteMessagesAreEmoteOnly = (previousMessages.results || []).length === emoteMessageThreshold - 1 &&
               previousMessages.results.every((row) => isKickEmoteOnlyMessage(row.content));
             const emoteSpamReason = messageEmoteCount > 9
               ? "More than 9 emotes in one message"
-              : (emoteOnlyMessage && previousFiveAreEmoteOnly
-                ? "More than 5 consecutive emote-only messages"
+              : (emoteOnlyMessage && previousEmoteMessagesAreEmoteOnly
+                ? `More than ${emoteMessageThreshold - 1} consecutive emote-only messages`
                 : null);
             if (emoteSpamReason) {
               const detail = JSON.stringify({
@@ -407,7 +413,8 @@ export default {
                 duration_seconds: 86400,
                 reason: emoteSpamReason,
                 emotes_in_message: messageEmoteCount,
-                consecutive_emote_only_messages: emoteOnlyMessage && previousFiveAreEmoteOnly ? 6 : 0,
+                consecutive_emote_only_messages: emoteOnlyMessage && previousEmoteMessagesAreEmoteOnly ? emoteMessageThreshold : 0,
+                emote_message_threshold: emoteMessageThreshold,
                 channel: channel.slug,
                 username: String(sender.username || "").slice(0, 80),
                 sender_user_id: sender.user_id,
@@ -636,12 +643,13 @@ export default {
       if (!env.DB) return json({ error: "Database unavailable" }, 503);
       await ensureTables(env.DB);
       if (request.method === "GET") {
-        const row = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds, updated_at FROM moderation_settings WHERE id = 1").first();
+        const row = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds, emote_message_threshold, updated_at FROM moderation_settings WHERE id = 1").first();
         return json({
           spamEnabled: Boolean(row?.spam_enabled),
           repeatCount: row?.repeat_count ?? 4,
           windowSeconds: row?.window_seconds ?? 30,
           timeoutSeconds: row?.timeout_seconds ?? 300,
+          emoteMessageThreshold: row?.emote_message_threshold ?? 10,
           updatedAt: row?.updated_at ?? null
         });
       }
@@ -650,18 +658,21 @@ export default {
       const repeatCount = Number(body.repeatCount);
       const windowSeconds = Number(body.windowSeconds);
       const timeoutSeconds = Number(body.timeoutSeconds);
+      const emoteMessageThreshold = Number(body.emoteMessageThreshold);
       if (typeof body.spamEnabled !== "boolean" ||
           !Number.isInteger(repeatCount) || repeatCount < 2 || repeatCount > 20 ||
           !Number.isInteger(windowSeconds) || windowSeconds < 5 || windowSeconds > 300 ||
-          !Number.isInteger(timeoutSeconds) || timeoutSeconds < 10 || timeoutSeconds > 86400) {
-        return json({ error: "Choose 2–20 repeats, a 5–300 second window, and a 10–86400 second timeout." }, 400);
+          !Number.isInteger(timeoutSeconds) || timeoutSeconds < 10 || timeoutSeconds > 86400 ||
+          !Number.isInteger(emoteMessageThreshold) || emoteMessageThreshold < 2 || emoteMessageThreshold > 20) {
+        return json({ error: "Choose 2–20 repeats, a 5–300 second window, a 10–86400 second timeout, and 2–20 consecutive emote-only messages." }, 400);
       }
-      await env.DB.prepare(`INSERT INTO moderation_settings (id, spam_enabled, repeat_count, window_seconds, timeout_seconds, updated_at)
-        VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      await env.DB.prepare(`INSERT INTO moderation_settings (id, spam_enabled, repeat_count, window_seconds, timeout_seconds, emote_message_threshold, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET spam_enabled=excluded.spam_enabled, repeat_count=excluded.repeat_count,
-        window_seconds=excluded.window_seconds, timeout_seconds=excluded.timeout_seconds, updated_at=CURRENT_TIMESTAMP`)
-        .bind(body.spamEnabled ? 1 : 0, repeatCount, windowSeconds, timeoutSeconds).run();
-      return json({ ok: true, spamEnabled: body.spamEnabled, repeatCount, windowSeconds, timeoutSeconds });
+        window_seconds=excluded.window_seconds, timeout_seconds=excluded.timeout_seconds,
+        emote_message_threshold=excluded.emote_message_threshold, updated_at=CURRENT_TIMESTAMP`)
+        .bind(body.spamEnabled ? 1 : 0, repeatCount, windowSeconds, timeoutSeconds, emoteMessageThreshold).run();
+      return json({ ok: true, spamEnabled: body.spamEnabled, repeatCount, windowSeconds, timeoutSeconds, emoteMessageThreshold });
     }
 
     if (url.pathname === "/api/moderation/ban" && request.method === "POST") {
