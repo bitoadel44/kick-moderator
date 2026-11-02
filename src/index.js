@@ -570,6 +570,47 @@ export default {
       return json({ ok: true, spamEnabled: body.spamEnabled, repeatCount, windowSeconds, timeoutSeconds });
     }
 
+    if (url.pathname === "/api/moderation/ban" && request.method === "POST") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
+      const broadcasterUserId = Number(body.broadcasterUserId);
+      const targetUserId = Number(body.targetUserId);
+      const username = String(body.username || "").trim().slice(0, 80);
+      const confirmation = String(body.confirmation || "");
+      const reason = String(body.reason || "Manual dashboard permanent ban").trim().slice(0, 100);
+      if (!Number.isSafeInteger(broadcasterUserId) || broadcasterUserId <= 0 ||
+          !Number.isSafeInteger(targetUserId) || targetUserId <= 0) {
+        return json({ error: "Choose a valid channel and user." }, 400);
+      }
+      if (broadcasterUserId === targetUserId) return json({ error: "Safety check blocked: you cannot ban the broadcaster." }, 400);
+      const expectedConfirmation = "PERMANENTLY BAN " + (username || String(targetUserId));
+      if (confirmation !== expectedConfirmation) return json({ error: "Confirmation did not match. No ban was sent." }, 400);
+      const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE broadcaster_user_id = ?")
+        .bind(broadcasterUserId).first();
+      if (!channel) return json({ error: "This channel is not in your managed channels." }, 403);
+      const connection = await env.DB.prepare("SELECT access_token, expires_at, scope FROM kick_connection WHERE id = 1").first();
+      if (!connection) return json({ error: "Connect Kick first." }, 409);
+      if (connection.expires_at <= Math.floor(Date.now() / 1000) + 60) return json({ error: "Kick connection is expired or nearly expired. Reconnect Kick before trying again." }, 401);
+      const scopes = String(connection.scope || "").split(/[ ,]+/);
+      if (!scopes.includes("moderation:ban")) return json({ error: "The saved Kick connection does not include moderation:ban. Reconnect and grant that scope." }, 403);
+      const kickResponse = await fetch("https://api.kick.com/public/v1/moderation/bans", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + connection.access_token, "content-type": "application/json" },
+        body: JSON.stringify({ broadcaster_user_id: Number(channel.broadcaster_user_id), user_id: targetUserId, reason })
+      });
+      const kickData = await kickResponse.json().catch(() => ({}));
+      await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+        .bind("manual_ban", kickResponse.ok ? "permanent_ban_sent" : "kick_rejected", JSON.stringify({
+          channel: channel.slug, broadcaster_user_id: broadcasterUserId,
+          target_username: username, target_user_id: targetUserId,
+          http_status: kickResponse.status, response: kickData
+        }).slice(0, 1500), "manual").run();
+      if (!kickResponse.ok) return json({ error: "Kick rejected the permanent ban.", status: kickResponse.status, details: kickData }, kickResponse.status);
+      return json({ ok: true, action: "ban", channel: channel.slug, target: username || String(targetUserId) });
+    }
+
     if (url.pathname === "/api/moderation/timeout" && request.method === "POST") {
       if (!env.DB) return json({ error: "Database unavailable." }, 503);
       await ensureTables(env.DB);
