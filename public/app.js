@@ -162,8 +162,8 @@ document.querySelector("#add-channel-form").addEventListener("submit", async (ev
     const subscriptionText = data.webhookSubscription === "subscribed"
       ? "Kick accepted the chat-event subscription."
       : "Kick subscription failed: " + (data.warning || "No reason returned.");
-    status.textContent = "@" + data.channel.slug + " added. " + subscriptionText + " Moderator permissions are NOT verified yet; protection remains off.";
     await loadChannels();
+    status.textContent = "@" + data.channel.slug + " added. " + subscriptionText + " Moderator permissions are NOT verified yet; protection remains off.";
   } catch (error) { status.textContent = error.message; }
   finally { button.disabled = false; }
 });
