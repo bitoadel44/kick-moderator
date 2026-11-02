@@ -206,6 +206,15 @@ export default {
       return json({ connected: Boolean(row), ...(row || {}) });
     }
 
+    if (url.pathname === "/api/webhooks/recent" && request.method === "GET") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const result = await env.DB.prepare(`SELECT event_type, broadcaster_user_id, broadcaster_slug,
+        sender_user_id, sender_username, content, event_created_at, received_at
+        FROM webhook_events ORDER BY received_at DESC LIMIT 20`).all();
+      return json({ events: result.results || [] });
+    }
+
     if (url.pathname === "/api/channels" && request.method === "GET") {
       await ensureTables(env.DB);
       const result = await env.DB.prepare("SELECT broadcaster_user_id, slug, spam_enabled, repeat_count, window_seconds, timeout_seconds, added_at FROM managed_channels ORDER BY slug").all();
