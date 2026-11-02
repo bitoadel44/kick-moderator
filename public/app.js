@@ -77,5 +77,55 @@ connectButton.addEventListener("click", () => {
   connectionStatus.textContent = "Redirecting to Kick…";
   window.location.assign("/api/auth/start");
 });
+async function loadSpamSettings() {
+  const status = document.querySelector("#settings-status");
+  try {
+    const response = await fetch("/api/settings");
+    if (response.status === 401) { showLogin(); return; }
+    const settings = await response.json();
+    if (!response.ok) throw new Error(settings.error || "Could not load settings.");
+    document.querySelector("#spam-enabled").checked = settings.spamEnabled;
+    document.querySelector("#spam-repeat-count").value = settings.repeatCount;
+    document.querySelector("#spam-window").value = settings.windowSeconds;
+    document.querySelector("#spam-timeout").value = settings.timeoutSeconds;
+    status.textContent = settings.spamEnabled ? "Settings loaded. Spam protection is enabled." : "Settings loaded. Rule is currently off.";
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+document.querySelector("#save-spam-settings").addEventListener("click", async () => {
+  const button = document.querySelector("#save-spam-settings");
+  const status = document.querySelector("#settings-status");
+  const payload = {
+    spamEnabled: document.querySelector("#spam-enabled").checked,
+    repeatCount: Number(document.querySelector("#spam-repeat-count").value),
+    windowSeconds: Number(document.querySelector("#spam-window").value),
+    timeoutSeconds: Number(document.querySelector("#spam-timeout").value)
+  };
+  button.disabled = true;
+  status.textContent = "Saving settings…";
+  try {
+    const response = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (response.status === 401) { showLogin(); throw new Error("Please log in again."); }
+    if (!response.ok) throw new Error(result.error || "Could not save settings.");
+    status.textContent = result.spamEnabled
+      ? `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Rule enabled.`
+      : `Saved: ${result.repeatCount} repeats in ${result.windowSeconds}s → ${result.timeoutSeconds}s timeout. Rule off.`;
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+const originalCheckHealth = checkHealth;
+checkHealth = async function() {
+  await originalCheckHealth();
+  if (!dashboard.hidden) await loadSpamSettings();
+};
 checkHealth();
 // Cloudflare deployment test
