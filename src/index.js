@@ -587,6 +587,7 @@ export default {
     }
 
     if (url.pathname === "/api/auth/callback") {
+      try {
       if (url.searchParams.get("error")) return new Response("Kick authorization was cancelled or denied. You can close this page.", { status: 400 });
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
@@ -625,7 +626,12 @@ export default {
         VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope, connected_at=CURRENT_TIMESTAMP`)
         .bind(tokens.access_token, tokens.refresh_token, Math.floor(Date.now()/1000) + Number(tokens.expires_in || 3600), tokens.scope || "").run();
-      return new Response('<!doctype html><html><head><meta charset="utf-8"><title>Kick connected</title></head><body style="background:#101014;color:#fff;font:16px system-ui;padding:48px"><h1>Kick connected successfully!</h1><p>You can close this tab and return to your K_Botros dashboard.</p><p>Moderation actions are not enabled yet.</p><a style="color:#53e0a1" href="/">Back to dashboard</a></body></html>', { headers: { "content-type": "text/html; charset=utf-8", "set-cookie": "kick_oauth=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/callback; Max-Age=0", "cache-control": "no-store" }});
+      return new Response('<!doctype html><html><head><meta charset="utf-8"><title>Kick connected</title></head><body style="background:#101014;color:#fff;font:16px system-ui;padding:48px"><h1>Kick connected successfully!</h1><p>You can close this page and return to your K_Botros dashboard.</p><p>Moderation actions are not enabled yet.</p><a style="color:#53e0a1" href="/">Back to dashboard</a></body></html>', { headers: { "content-type": "text/html; charset=utf-8", "set-cookie": "kick_oauth=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/callback; Max-Age=0", "cache-control": "no-store" }});
+      } catch (error) {
+        const detail = String(error?.message || error || "Unknown OAuth callback error").slice(0, 500);
+        console.error("KICK_OAUTH_CALLBACK_EXCEPTION", error?.stack || detail);
+        return new Response("Kick connection failed inside the callback: " + detail + ". Check Cloudflare D1 binding and Worker logs, then retry Connect Kick.", { status: 500, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+      }
     }
 
     if (url.pathname === "/api/connection") {
