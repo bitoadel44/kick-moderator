@@ -28,7 +28,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
-      return json({ ok: true, app: env.APP_NAME || "K_Botros Kick Moderator", databaseConfigured: Boolean(env.DB), kickCredentialsConfigured: Boolean(env.KICK_CLIENT_ID && env.KICK_CLIENT_SECRET) });
+      return json({ ok: true, app: env.APP_NAME || "K_Botros Kick Moderator", databaseConfigured: Boolean(env.DB), kickClientIdConfigured: Boolean(env.KICK_CLIENT_ID), kickClientSecretConfigured: Boolean(env.KICK_CLIENT_SECRET), kickCredentialsConfigured: Boolean(env.KICK_CLIENT_ID && env.KICK_CLIENT_SECRET) });
     }
 
     if (url.pathname === "/api/auth/start") {
