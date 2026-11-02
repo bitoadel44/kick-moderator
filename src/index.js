@@ -54,6 +54,12 @@ async function ensureTables(db) {
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
   await db.prepare(`INSERT OR IGNORE INTO moderation_settings (id) VALUES (1)`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS managed_channels (
+    broadcaster_user_id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
+    spam_enabled INTEGER NOT NULL DEFAULT 0, repeat_count INTEGER NOT NULL DEFAULT 4,
+    window_seconds INTEGER NOT NULL DEFAULT 30, timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
 }
 export default {
   async fetch(request, env) {
@@ -144,6 +150,33 @@ export default {
       return json({ connected: Boolean(row), ...(row || {}) });
     }
 
+    if (url.pathname === "/api/channels" && request.method === "GET") {
+      await ensureTables(env.DB);
+      const result = await env.DB.prepare("SELECT broadcaster_user_id, slug, spam_enabled, repeat_count, window_seconds, timeout_seconds, added_at FROM managed_channels ORDER BY slug").all();
+      return json({ channels: (result.results || []).map(row => ({ broadcasterUserId: row.broadcaster_user_id, slug: row.slug, spamEnabled: Boolean(row.spam_enabled), repeatCount: row.repeat_count, windowSeconds: row.window_seconds, timeoutSeconds: row.timeout_seconds, addedAt: row.added_at })) });
+    }
+    if (url.pathname === "/api/channels" && request.method === "POST") {
+      await ensureTables(env.DB);
+      const connection = await env.DB.prepare("SELECT access_token, expires_at FROM kick_connection WHERE id = 1").first();
+      if (!connection) return json({ error: "Connect your Kick account first." }, 409);
+      if (connection.expires_at <= Math.floor(Date.now()/1000) + 60) return json({ error: "Reconnect Kick; the saved connection may have expired." }, 401);
+      let body; try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
+      const slug = String(body.slug || "").trim().replace(/^@/, "").toLowerCase();
+      if (!/^[a-z0-9_-]{1,25}$/.test(slug)) return json({ error: "Enter a valid Kick username (up to 25 characters)." }, 400);
+      const lookup = await fetch("https://api.kick.com/public/v1/channels?slug=" + encodeURIComponent(slug), { headers: { Authorization: "Bearer " + connection.access_token } });
+      const data = await lookup.json().catch(() => ({}));
+      if (!lookup.ok) return json({ error: lookup.status === 401 ? "Reconnect Kick and try again." : "Kick channel lookup failed: " + (data.message || lookup.statusText) }, lookup.status === 401 ? 401 : 400);
+      const channel = data.data && data.data[0];
+      if (!channel) return json({ error: "No Kick channel found with that username." }, 404);
+      await env.DB.prepare("INSERT INTO managed_channels (broadcaster_user_id, slug) VALUES (?, ?) ON CONFLICT(broadcaster_user_id) DO UPDATE SET slug=excluded.slug").bind(channel.broadcaster_user_id, channel.slug).run();
+      return json({ ok: true, channel: { broadcasterUserId: channel.broadcaster_user_id, slug: channel.slug }, permissionStatus: "not_checked" });
+    }
+    if (url.pathname.startsWith("/api/channels/") && request.method === "DELETE") {
+      await ensureTables(env.DB); const id = Number(url.pathname.split("/").pop());
+      if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Invalid channel ID." }, 400);
+      await env.DB.prepare("DELETE FROM managed_channels WHERE broadcaster_user_id = ?").bind(id).run();
+      return json({ ok: true });
+    }
     if (url.pathname === "/api/settings" && (request.method === "GET" || request.method === "PUT")) {
       if (!env.DB) return json({ error: "Database unavailable" }, 503);
       await ensureTables(env.DB);
