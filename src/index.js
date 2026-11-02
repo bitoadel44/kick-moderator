@@ -131,6 +131,10 @@ async function ensureTables(db) {
     broadcaster_slug TEXT, sender_user_id INTEGER, sender_username TEXT,
     content TEXT, event_created_at TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS webhook_diagnostics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, stage TEXT NOT NULL, outcome TEXT NOT NULL,
+    detail TEXT, event_type TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
   await db.prepare(`CREATE TABLE IF NOT EXISTS managed_channels (
     broadcaster_user_id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
     spam_enabled INTEGER NOT NULL DEFAULT 0, repeat_count INTEGER NOT NULL DEFAULT 4,
@@ -174,6 +178,9 @@ export default {
       } catch (error) {
         const detail = String(error?.message || error || "Unknown verification error").slice(0, 500);
         console.error("KICK_WEBHOOK_VERIFY_ERROR", JSON.stringify({ eventType, detail }));
+        await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+          .bind("signature_verification", "error", detail, eventType).run()
+          .catch(dbError => console.error("KICK_WEBHOOK_DIAGNOSTIC_WRITE_ERROR", dbError?.message));
         return json({ error: "Webhook signature verification failed.", diagnostic: detail }, 502);
       }
       if (!verified) {
@@ -279,6 +286,14 @@ export default {
         sender_user_id, sender_username, content, event_created_at, received_at
         FROM webhook_events ORDER BY received_at DESC LIMIT 20`).all();
       return json({ events: result.results || [] });
+    }
+
+    if (url.pathname === "/api/webhooks/diagnostics" && request.method === "GET") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const result = await env.DB.prepare(`SELECT stage, outcome, detail, event_type, received_at
+        FROM webhook_diagnostics ORDER BY id DESC LIMIT 20`).all();
+      return json({ diagnostics: result.results || [] });
     }
 
     if (url.pathname === "/api/channels" && request.method === "GET") {
