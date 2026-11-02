@@ -182,6 +182,11 @@ async function ensureTables(db) {
     window_seconds INTEGER NOT NULL DEFAULT 30, timeout_seconds INTEGER NOT NULL DEFAULT 300,
     added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS banned_words (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
 }
 export default {
   async fetch(request, env) {
@@ -369,6 +374,36 @@ export default {
       await env.DB.prepare("DELETE FROM managed_channels WHERE broadcaster_user_id = ?").bind(id).run();
       return json({ ok: true });
     }
+    if (url.pathname === "/api/banned-words" && request.method === "GET") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const result = await env.DB.prepare("SELECT id, term, created_at FROM banned_words ORDER BY term COLLATE NOCASE").all();
+      return json({ words: result.results || [] });
+    }
+    if (url.pathname === "/api/banned-words" && request.method === "POST") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
+      const term = String(body.term || "").trim().replace(/\\s+/g, " ");
+      if (!term || term.length > 80 || /[\\r\\n]/.test(term)) return json({ error: "Enter one word or phrase (1–80 characters)." }, 400);
+      try {
+        const result = await env.DB.prepare("INSERT INTO banned_words (term) VALUES (?) RETURNING id, term, created_at").bind(term).first();
+        return json({ ok: true, word: result }, 201);
+      } catch (error) {
+        if (/unique/i.test(String(error?.message || error))) return json({ error: "That word or phrase is already in the list." }, 409);
+        throw error;
+      }
+    }
+    if (url.pathname.startsWith("/api/banned-words/") && request.method === "DELETE") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      const id = Number(url.pathname.split("/").pop());
+      if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Invalid word ID." }, 400);
+      await env.DB.prepare("DELETE FROM banned_words WHERE id = ?").bind(id).run();
+      return json({ ok: true });
+    }
+
     if (url.pathname === "/api/settings" && (request.method === "GET" || request.method === "PUT")) {
       if (!env.DB) return json({ error: "Database unavailable" }, 503);
       await ensureTables(env.DB);
