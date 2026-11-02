@@ -82,8 +82,8 @@ async function verifyKickWebhook(request, rawBody) {
   }
   const decodeBase64 = (value, label) => {
     let normalized = String(value || "").trim();
-    normalized = normalized.replace(/^(?:sha256|base64)\\s*=\\s*/i, "");
-    normalized = normalized.replace(/\\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    normalized = normalized.replace(/^(?:sha256|base64)\s*=\s*/i, "");
+    normalized = normalized.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
     if (!normalized || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
       throw new Error(label + " was not valid Base64 (unexpected characters or prefix).");
     }
