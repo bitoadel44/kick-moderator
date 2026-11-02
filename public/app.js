@@ -179,17 +179,22 @@ document.querySelector("#check-moderation-results").addEventListener("click", as
   list.replaceChildren();
   try {
     const response = await fetch("/api/webhooks/diagnostics", { credentials: "same-origin", cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const preview = (await response.text()).slice(0, 160).replace(/\\s+/g, " ");
+      throw new Error("Moderation results API returned HTML instead of JSON (HTTP " + response.status + "). Refresh the dashboard; if it continues, check the latest Worker deployment. " + preview);
+    }
     const data = await response.json();
     if (response.status === 401) throw new Error("Your dashboard session was not accepted. Please log out and log in again.");
     if (!response.ok) throw new Error(data.error || "Could not load moderation results.");
     const matches = (data.diagnostics || []).filter(item =>
-      ["dry_run_match", "dry_run_timeout"].includes(item.outcome)
+      ["timeout_sent", "permanent_ban_sent", "enforcement_error", "dry_run_match", "dry_run_timeout"].includes(item.outcome)
     );
     if (!matches.length) {
       status.textContent = "No moderation matches recorded yet. Send a fresh test message and check again.";
       return;
     }
-    status.textContent = "Showing " + matches.length + " recent dry-run match(es).";
+    status.textContent = "Showing " + matches.length + " recent moderation result(s).";
     for (const result of matches) {
       let detail = {};
       try { detail = JSON.parse(result.detail || "{}"); } catch {}
