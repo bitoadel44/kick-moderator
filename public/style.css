@@ -40,3 +40,25 @@
 .channel-item button{padding:8px 12px;background:#302638;font-size:12px}
 .add-channel-form button:disabled,.channel-item button:disabled{opacity:.6;cursor:wait}
 @media(max-width:600px){.add-channel-form{flex-direction:column}.channel-item{align-items:flex-start}.channel-item span{flex-basis:100%}}
+
+.banned-words-panel .safe-mode-label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 190, 90, .35);
+  color: #f0bd72;
+  background: rgba(255, 190, 90, .08);
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: .78rem;
+  font-weight: 700;
+}
+.banned-words-panel .add-channel-form {
+  margin-top: 18px;
+}
+@media (max-width: 640px) {
+  .banned-words-panel .settings-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
