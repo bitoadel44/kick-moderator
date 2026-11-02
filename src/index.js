@@ -428,9 +428,9 @@ export default {
             const spamSettings = await env.DB.prepare("SELECT spam_enabled, repeat_count, window_seconds, timeout_seconds FROM moderation_settings WHERE id = 1").first();
             // Ignore Kick emote tokens for repeated-text spam. Emote-only messages become empty and are skipped.
             const normalizeTextSpamContent = (value) => String(value || "")
-              .replace(/\\[emote:\\d+:[^\\]]+\\]/g, " ")
+              .replace(/\[emote:\d+:[^\]]+\]/g, " ")
               .trim()
-              .replace(/\\s+/g, " ")
+              .replace(/\s+/g, " ")
               .toLocaleLowerCase();
             const normalizedContent = normalizeTextSpamContent(payload.content || "");
             if (spamSettings?.spam_enabled && normalizedContent) {
