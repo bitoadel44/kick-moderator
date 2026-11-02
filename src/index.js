@@ -22,7 +22,33 @@ function safeEqual(a, b) {
   for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
 }
-async function hasDashboardSession(request, secret) {
+
+function bannedWordTokens(value) {
+  return String(value || "").normalize("NFKD").toLocaleLowerCase()
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .match(/[\\p{L}\\p{N}]+/gu) || [];
+}
+function bannedWordKey(token) {
+  return token.replace(/[aeiou]/g, "");
+}
+function findBannedWordMatch(message, terms) {
+  const messageTokens = bannedWordTokens(message);
+  for (const row of terms) {
+    const termTokens = bannedWordTokens(row.term);
+    if (!termTokens.length || termTokens.length > messageTokens.length) continue;
+    for (let start = 0; start <= messageTokens.length - termTokens.length; start++) {
+      const candidate = messageTokens.slice(start, start + termTokens.length);
+      const exact = candidate.every((token, i) => token === termTokens[i]);
+      const vowelOmitted = termTokens.every((token, i) =>
+        token.length >= 5 && bannedWordKey(token).length >= 4 &&
+        bannedWordKey(candidate[i]) === bannedWordKey(token)
+      );
+      if (exact || vowelOmitted) return row.term;
+    }
+  }
+  return null;
+}
+\nasync function hasDashboardSession(request, secret) {
   if (!secret) return false;
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/(?:^|; )kb_session=([^;]+)/);
@@ -242,11 +268,12 @@ export default {
       if (eventType === "chat.message.sent") {
         const broadcaster = payload.broadcaster || {};
         const sender = payload.sender || {};
-        await env.DB.prepare(`INSERT OR IGNORE INTO webhook_events
+        const messageId = String(payload.message_id || request.headers.get("Kick-Event-Message-Id"));
+        const stored = await env.DB.prepare(`INSERT OR IGNORE INTO webhook_events
           (message_id, event_type, broadcaster_user_id, broadcaster_slug, sender_user_id, sender_username, content, event_created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
           .bind(
-            String(payload.message_id || request.headers.get("Kick-Event-Message-Id")),
+            messageId,
             eventType,
             broadcaster.user_id || null,
             broadcaster.channel_slug || null,
@@ -255,6 +282,29 @@ export default {
             String(payload.content || "").slice(0, 2000),
             payload.created_at || null
           ).run();
+
+        // Safe preview only: detect matches and record them; never issue moderation actions here.
+        if (stored.meta?.changes && broadcaster.user_id && sender.user_id) {
+          const channel = await env.DB.prepare("SELECT slug FROM managed_channels WHERE broadcaster_user_id = ?")
+            .bind(broadcaster.user_id).first();
+          if (channel) {
+            const terms = await env.DB.prepare("SELECT term FROM banned_words ORDER BY id").all();
+            const matchedTerm = findBannedWordMatch(payload.content || "", terms.results || []);
+            if (matchedTerm) {
+              const detail = JSON.stringify({
+                mode: "dry_run",
+                action: "would_permanently_ban",
+                channel: channel.slug,
+                username: String(sender.username || "").slice(0, 80),
+                sender_user_id: sender.user_id,
+                matched_term: matchedTerm,
+                message_id: messageId
+              });
+              await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+                .bind("banned_word_match", "dry_run_match", detail, eventType).run();
+            }
+          }
+        }
       }
       return json({ ok: true });
     }
