@@ -1,8 +1,8 @@
 const REDIRECT_URI = "https://kick-moderator.bitoadel44.workers.dev/api/auth/callback";
 const SCOPES = "user:read channel:read events:subscribe moderation:ban moderation:chat_message:manage";
 
-const json = (data, status = 200) => new Response(JSON.stringify(data), {
-  status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+const json = (data, status = 200, extraHeaders = {}) => new Response(JSON.stringify(data), {
+  status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders },
 });
 const base64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const randomToken = (length = 32) => {
@@ -13,6 +13,29 @@ async function sign(value, secret) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return base64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)));
 }
+
+function safeEqual(a, b) {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+async function hasDashboardSession(request, secret) {
+  if (!secret) return false;
+  const cookie = request.headers.get("Cookie") || "";
+  const match = cookie.match(/(?:^|; )kb_session=([^;]+)/);
+  if (!match) return false;
+  const [payload, signature] = match[1].split(".");
+  if (!payload || !signature || !safeEqual(signature, await sign(payload, secret))) return false;
+  try {
+    const padded = payload.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((payload.length + 3) % 4);
+    const session = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(padded), c => c.charCodeAt(0))));
+    return session.exp > Date.now();
+  } catch { return false; }
+}
+
 async function ensureTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS kick_connection (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -26,6 +49,32 @@ async function ensureTables(db) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/login" && request.method === "POST") {
+      if (!env.DASHBOARD_PASSWORD) return json({ error: "Dashboard password is not configured." }, 503);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
+      if (typeof body.password !== "string" || !safeEqual(body.password, env.DASHBOARD_PASSWORD)) {
+        return json({ error: "Incorrect password." }, 401);
+      }
+      const payload = base64url(new TextEncoder().encode(JSON.stringify({ exp: Date.now() + 12 * 60 * 60 * 1000 })));
+      const signature = await sign(payload, env.DASHBOARD_PASSWORD);
+      return json({ ok: true }, 200, {
+        "set-cookie": `kb_session=${payload}.${signature}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`
+      });
+    }
+
+    if (url.pathname === "/api/logout" && request.method === "POST") {
+      return json({ ok: true }, 200, {
+        "set-cookie": "kb_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
+      });
+    }
+
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" &&
+        url.pathname !== "/api/login" && url.pathname !== "/api/logout" &&
+        !(await hasDashboardSession(request, env.DASHBOARD_PASSWORD))) {
+      return json({ error: "Dashboard login required." }, 401);
+    }
 
     if (url.pathname === "/api/health") {
       return json({ ok: true, app: env.APP_NAME || "K_Botros Kick Moderator", databaseConfigured: Boolean(env.DB), kickClientIdConfigured: Boolean(env.KICK_CLIENT_ID), kickClientSecretConfigured: Boolean(env.KICK_CLIENT_SECRET), kickCredentialsConfigured: Boolean(env.KICK_CLIENT_ID && env.KICK_CLIENT_SECRET) });
