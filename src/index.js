@@ -71,9 +71,9 @@ async function verifyKickWebhook(request, rawBody) {
       if (parsed && typeof parsed === "object") {
         const data = parsed.data;
         const dataShape = Array.isArray(data)
-          ? "array length " + data.length + (data[0] && typeof data[0] === "object" ? ", first item keys: " + Object.keys(data[0]).join(", ") : "")
+          ? "array length " + data.length
           : data && typeof data === "object"
-            ? "object keys: " + Object.keys(data).join(", ")
+            ? "object keys: " + Object.keys(data).join(", ") + "; public_key type: " + typeof data.public_key + (typeof data.public_key === "string" ? "; public_key prefix: " + JSON.stringify(data.public_key.slice(0, 32)) : data.public_key && typeof data.public_key === "object" ? "; public_key keys: " + Object.keys(data.public_key).join(", ") : "")
             : typeof data;
         shape = "JSON keys: " + Object.keys(parsed).join(", ") + "; data is " + dataShape;
       } else shape = typeof parsed;
