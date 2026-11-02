@@ -188,6 +188,7 @@ export default {
 
     if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" &&
         url.pathname !== "/api/login" && url.pathname !== "/api/logout" &&
+        url.pathname !== "/api/auth/callback" &&
         !(await hasDashboardSession(request, env.DASHBOARD_PASSWORD))) {
       return json({ error: "Dashboard login required." }, 401);
     }
