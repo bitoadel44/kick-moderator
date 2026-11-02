@@ -54,12 +54,29 @@ async function verifyKickWebhook(request, rawBody) {
     // Kick's documented endpoint may return the PEM directly as plain text.
   }
   if (typeof pem !== "string" || !pem.trim()) throw new Error("Kick public-key response was empty.");
-  const match = pem.trim().match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
+  const match = pem.trim().match(/-----BEGIN PUBLIC KEY-----([\\s\\S]+?)-----END PUBLIC KEY-----/);
   if (!match) throw new Error("Kick returned an unsupported public-key format.");
-  const der = Uint8Array.from(atob(match[1].replace(/\s/g, "")), c => c.charCodeAt(0));
+  const decodeBase64 = (value, label) => {
+    let normalized = String(value || "").trim();
+    normalized = normalized.replace(/^(?:sha256|base64)\\s*=\\s*/i, "");
+    normalized = normalized.replace(/\\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!normalized || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
+      throw new Error(label + " was not valid Base64 (unexpected characters or prefix).");
+    }
+    normalized = normalized.replace(/=+$/, "");
+    if (normalized.length % 4 === 1) throw new Error(label + " had an invalid Base64 length.");
+    normalized += "=".repeat((4 - normalized.length % 4) % 4);
+    try {
+      const binary = atob(normalized);
+      return Uint8Array.from(binary, c => c.charCodeAt(0));
+    } catch {
+      throw new Error(label + " could not be decoded as Base64.");
+    }
+  };
+  const der = decodeBase64(match[1], "Kick public key");
   const key = await crypto.subtle.importKey("spki", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
   const signedMessage = new TextEncoder().encode(messageId + "." + timestamp + "." + rawBody);
-  const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+  const signatureBytes = decodeBase64(signature, "Kick webhook signature");
   return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, signedMessage);
 }
 
