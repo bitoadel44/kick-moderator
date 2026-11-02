@@ -182,7 +182,14 @@ document.querySelector("#check-webhook-events").addEventListener("click", async 
     if (!response.ok) throw new Error(data.error || "Could not load webhook events.");
     const events = data.events || [];
     if (!events.length) {
-      status.textContent = "No chat events received yet. Send a new message in your Kick channel and check again.";
+      const diagnosticResponse = await fetch("/api/webhooks/diagnostics", { credentials: "same-origin", cache: "no-store" });
+      const diagnosticData = await diagnosticResponse.json();
+      const latestError = (diagnosticData.diagnostics || []).find(item => item.outcome === "error");
+      if (latestError) {
+        status.textContent = "No chat events stored yet. Latest webhook error (" + latestError.stage + "): " + latestError.detail;
+      } else {
+        status.textContent = "No chat events received yet. No verification error has been recorded. Send a fresh chat message and check again.";
+      }
       return;
     }
     status.textContent = "Received " + events.length + " recent event(s).";
