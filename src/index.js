@@ -570,6 +570,67 @@ export default {
       return json({ ok: true, spamEnabled: body.spamEnabled, repeatCount, windowSeconds, timeoutSeconds });
     }
 
+    if (url.pathname === "/api/moderation/test-timeout" && request.method === "POST") {
+      if (!env.DB) return json({ error: "Database unavailable." }, 503);
+      await ensureTables(env.DB);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid confirmation." }, 400); }
+      if (body.confirm !== "TIMEOUT 3ndi_soda3 IN k_botros") {
+        return json({ error: "Confirmation text did not match. No moderation action was sent." }, 400);
+      }
+      const connection = await env.DB.prepare("SELECT access_token, expires_at, scope FROM kick_connection WHERE id = 1").first();
+      if (!connection) return json({ error: "Connect Kick first." }, 409);
+      if (connection.expires_at <= Math.floor(Date.now() / 1000) + 60) {
+        return json({ error: "Kick connection is expired or nearly expired. Reconnect Kick before testing." }, 401);
+      }
+      const scopes = String(connection.scope || "").split(/[ ,]+/);
+      if (!scopes.includes("moderation:ban")) return json({ error: "The saved Kick connection does not include moderation:ban. Reconnect and grant that scope." }, 403);
+      const channel = await env.DB.prepare("SELECT broadcaster_user_id, slug FROM managed_channels WHERE lower(slug) = ?").bind("k_botros").first();
+      if (!channel) return json({ error: "K_Botros is not in your managed channels. Add it before testing." }, 409);
+      const targetUserId = 122349223;
+      if (Number(channel.broadcaster_user_id) === targetUserId) return json({ error: "Safety check blocked: target is the broadcaster." }, 400);
+      const kickResponse = await fetch("https://api.kick.com/public/v1/moderation/bans", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + connection.access_token,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          broadcaster_user_id: Number(channel.broadcaster_user_id),
+          user_id: targetUserId,
+          duration: 1,
+          reason: "One-minute moderation permission test"
+        })
+      });
+      const kickData = await kickResponse.json().catch(() => ({}));
+      await env.DB.prepare("INSERT INTO webhook_diagnostics (stage, outcome, detail, event_type) VALUES (?, ?, ?, ?)")
+        .bind(
+          "manual_moderation_test",
+          kickResponse.ok ? "timeout_sent" : "kick_rejected",
+          JSON.stringify({
+            channel: channel.slug,
+            broadcaster_user_id: Number(channel.broadcaster_user_id),
+            target_username: "3ndi_soda3",
+            target_user_id: targetUserId,
+            duration_minutes: 1,
+            http_status: kickResponse.status,
+            response: kickData
+          }).slice(0, 1500),
+          "manual"
+        ).run();
+      if (!kickResponse.ok) {
+        return json({ error: "Kick rejected the one-minute test timeout.", status: kickResponse.status, details: kickData }, kickResponse.status);
+      }
+      return json({
+        ok: true,
+        action: "timeout",
+        channel: channel.slug,
+        target: "3ndi_soda3",
+        durationMinutes: 1,
+        message: "Kick accepted the one-minute test timeout."
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) return json({ error: "Not implemented yet" }, 501);
     return env.ASSETS.fetch(request);
   },
