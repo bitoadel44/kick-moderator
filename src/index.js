@@ -385,8 +385,8 @@ export default {
       await ensureTables(env.DB);
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
-      const term = String(body.term || "").trim().replace(/\\s+/g, " ");
-      if (!term || term.length > 80 || /[\\r\\n]/.test(term)) return json({ error: "Enter one word or phrase (1–80 characters)." }, 400);
+      const term = String(body.term || "").trim().replace(/\s+/g, " ");
+      if (!term || term.length > 80 || /[\r\n]/.test(term)) return json({ error: "Enter one word or phrase (1–80 characters)." }, 400);
       try {
         const result = await env.DB.prepare("INSERT INTO banned_words (term) VALUES (?) RETURNING id, term, created_at").bind(term).first();
         return json({ ok: true, word: result }, 201);
