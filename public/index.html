@@ -8,11 +8,23 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main class="shell">
+  <section id="login-screen" class="login-screen" hidden>
+    <form id="login-form" class="login-card">
+      <div class="mark">KB</div><p class="eyebrow">PRIVATE CONTROL CENTER</p>
+      <h1>K_Botros <span>Moderator</span></h1>
+      <p class="muted">Enter your dashboard password to continue.</p>
+      <label for="dashboard-password">Dashboard password</label>
+      <input id="dashboard-password" type="password" autocomplete="current-password" required>
+      <button type="submit" id="login-button">Unlock dashboard</button>
+      <p id="login-error" class="login-error" role="alert"></p>
+    </form>
+  </section>
+  <main class="shell" id="dashboard" hidden>
     <header class="top">
       <div class="mark">KB</div>
       <div><p class="eyebrow">KICK CHANNEL TOOLS</p><h1>K_Botros <span>Moderator</span></h1></div>
       <span class="status"><i></i> Dashboard</span>
+      <button id="logout" class="logout">Log out</button>
     </header>
     <section class="welcome">
       <p class="eyebrow">CONTROL CENTER</p>
