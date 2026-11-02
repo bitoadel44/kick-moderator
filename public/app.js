@@ -286,6 +286,63 @@ document.querySelector("#check-webhook-events").addEventListener("click", async 
   }
 });
 
+async function loadProtectedUsers() {
+  const status = document.querySelector("#protected-users-status");
+  const list = document.querySelector("#protected-users-list");
+  try {
+    const response = await fetch("/api/protected-users", { cache: "no-store" });
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); return; }
+    if (!response.ok) throw new Error(data.error || "Could not load protected users.");
+    list.replaceChildren();
+    const users = data.users || [];
+    status.textContent = users.length ? users.length + " protected user(s)." : "No protected users added yet.";
+    for (const user of users) {
+      const item = document.createElement("div");
+      item.className = "channel-item";
+      const name = document.createElement("strong");
+      name.textContent = "@" + user.username;
+      const note = document.createElement("span");
+      note.textContent = "Protected from manual and automatic moderation";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove protection";
+      remove.addEventListener("click", async () => {
+        if (!confirm("Remove protection for @" + user.username + "?")) return;
+        remove.disabled = true;
+        try {
+          const result = await fetch("/api/protected-users/" + user.id, { method: "DELETE" });
+          const body = await result.json();
+          if (!result.ok) throw new Error(body.error || "Could not remove protection.");
+          await loadProtectedUsers();
+        } catch (error) { status.textContent = error.message; remove.disabled = false; }
+      });
+      item.append(name, note, remove);
+      list.append(item);
+    }
+  } catch (error) { status.textContent = error.message; }
+}
+document.querySelector("#add-protected-user-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.querySelector("#protected-user-input");
+  const button = document.querySelector("#add-protected-user-button");
+  const status = document.querySelector("#protected-users-status");
+  button.disabled = true;
+  status.textContent = "Adding protected user…";
+  try {
+    const response = await fetch("/api/protected-users", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: input.value })
+    });
+    const data = await response.json();
+    if (response.status === 401) { showLogin(); throw new Error("Please log in again."); }
+    if (!response.ok) throw new Error(data.error || "Could not protect user.");
+    input.value = "";
+    await loadProtectedUsers();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
 async function loadBannedWords() {
   const status = document.querySelector("#banned-words-status");
   const list = document.querySelector("#banned-words-list");
@@ -354,6 +411,11 @@ document.querySelector("#add-banned-word-form").addEventListener("submit", async
 
 const originalLoadSettingsForChannels = loadSpamSettings;
 loadSpamSettings = async function() { await originalLoadSettingsForChannels(); await loadChannels(); };
+const originalCheckHealthWithProtectedUsers = checkHealth;
+checkHealth = async function() {
+  await originalCheckHealthWithProtectedUsers();
+  if (!dashboard.hidden) await loadProtectedUsers();
+};
 const originalCheckHealth = checkHealth;
 checkHealth = async function() {
   await originalCheckHealth();
